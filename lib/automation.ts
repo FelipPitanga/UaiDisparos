@@ -140,7 +140,7 @@ export async function processJob(jobId: string) {
           if (button.type === "url") return `${button.label}|${button.value.startsWith("http") ? button.value : `url:${button.value}`}`;
           if (button.type === "call") return `${button.label}|${button.value.startsWith("call:") ? button.value : `call:${button.value}`}`;
           if (button.type === "copy") return `${button.label}|${button.value.startsWith("copy:") ? button.value : `copy:${button.value}`}`;
-          return `${button.label}|${button.id || button.value}`;
+          return `${button.label}|${button.value}`;
         }),
         footerText: campaign.footer_text || "",
       });
