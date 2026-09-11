@@ -50,7 +50,10 @@ export default function CampaignsManager({ initialCampaigns }: Props) {
     .replace(/{{\s*data\s*}}/gi, "11/09/2026")
     .replace(/{{\s*hora\s*}}/gi, "18:00"), [text]);
 
-  const activeButtons = useMemo(() => buttons.filter((b) => b.label.trim() && b.value.trim()), [buttons]);
+  const activeButtons = useMemo(
+    () => buttons.filter((b) => b.label.trim() && (b.type === "reply" || b.value.trim())),
+    [buttons],
+  );
 
   function resetForm() {
     setEditingId(null);
@@ -86,7 +89,10 @@ export default function CampaignsManager({ initialCampaigns }: Props) {
         media_url: mediaUrl,
         media_type: mediaUrl ? mediaType : "none",
         footer_text: footerText,
-        buttons: activeButtons,
+        buttons: activeButtons.map((button) => ({
+          ...button,
+          value: button.type === "reply" ? (button.value.trim() || button.id) : button.value.trim(),
+        })),
         status: "active",
       };
       const response = await fetch(editingId ? `/api/campaigns/${editingId}` : "/api/campaigns", {
@@ -150,12 +156,12 @@ export default function CampaignsManager({ initialCampaigns }: Props) {
           <div className="field modal-field-gap"><label>Rodapé dos botões</label><input className="input" value={footerText} onChange={(e) => setFooterText(e.target.value)} placeholder="Opcional" /></div>
 
           <div className="section-title modal-field-gap">Botões interativos</div>
-          <div className="muted code-help">Até 3 botões. Para URL use o link; para chamada use o telefone; para copiar use o código.</div>
+          <div className="muted code-help">Até 3 botões. Em “Resposta”, o terceiro campo é opcional. Para URL use o link; para chamada use o telefone; para copiar use o código.</div>
           {buttons.map((button, index) => (
             <div className="button-editor-row" key={button.id}>
               <input className="input" value={button.label} onChange={(e) => updateButton(index, "label", e.target.value)} placeholder={`Texto do botão ${index + 1}`} />
               <select className="select" value={button.type} onChange={(e) => updateButton(index, "type", e.target.value as ButtonItem["type"])}><option value="reply">Resposta</option><option value="url">Link</option><option value="call">Ligar</option><option value="copy">Copiar</option></select>
-              <input className="input" value={button.value} onChange={(e) => updateButton(index, "value", e.target.value)} placeholder={button.type === "url" ? "https://..." : button.type === "call" ? "+5562..." : button.type === "copy" ? "CUPOM10" : "Não obrigatório"} />
+              <input className="input" value={button.value} onChange={(e) => updateButton(index, "value", e.target.value)} placeholder={button.type === "url" ? "https://..." : button.type === "call" ? "+5562..." : button.type === "copy" ? "CUPOM10" : "Opcional"} />
             </div>
           ))}
 
