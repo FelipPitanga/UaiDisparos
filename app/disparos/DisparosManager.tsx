@@ -14,6 +14,7 @@ type Automation = {
   campaign_ids?: string[] | null;
   sender_instance_ids?: string[] | null;
   delay_seconds?: number | null;
+  send_interval_seconds?: number | null;
   daily_limit_per_sender?: number | null;
   active: boolean;
   authorization_confirmed: boolean;
@@ -56,6 +57,7 @@ export default function DisparosManager({ campaigns, senders, groups, automation
   const [campaignIds, setCampaignIds] = useState<string[]>(campaigns[0]?.id ? [campaigns[0].id] : []);
   const [senderIds, setSenderIds] = useState<string[]>(senders[0]?.id ? [senders[0].id] : []);
   const [delayMinutes, setDelayMinutes] = useState(0);
+  const [sendIntervalSeconds, setSendIntervalSeconds] = useState(30);
   const [dailyLimit, setDailyLimit] = useState(40);
   const [active, setActive] = useState(true);
   const [authorized, setAuthorized] = useState(false);
@@ -73,6 +75,7 @@ export default function DisparosManager({ campaigns, senders, groups, automation
     setCampaignIds(item.campaign_ids?.length ? item.campaign_ids : item.campaign_id ? [item.campaign_id] : []);
     setSenderIds(item.sender_instance_ids?.length ? item.sender_instance_ids : item.sender_instance_id ? [item.sender_instance_id] : []);
     setDelayMinutes(Math.round(Number(item.delay_seconds || 0) / 60));
+    setSendIntervalSeconds(Number(item.send_interval_seconds ?? 30));
     setDailyLimit(Number(item.daily_limit_per_sender || 40));
     setActive(item.active);
     setAuthorized(item.authorization_confirmed);
@@ -95,6 +98,7 @@ export default function DisparosManager({ campaigns, senders, groups, automation
           campaign_ids: campaignIds,
           sender_instance_ids: senderIds,
           delay_seconds: Math.max(0, Math.round(delayMinutes * 60)),
+          send_interval_seconds: Math.max(0, Math.round(sendIntervalSeconds)),
           daily_limit_per_sender: Math.max(1, Math.round(dailyLimit)),
           active,
           authorization_confirmed: authorized,
@@ -107,7 +111,7 @@ export default function DisparosManager({ campaigns, senders, groups, automation
         return exists ? current.map((x) => x.group_id === data.automation.group_id ? data.automation : x) : [data.automation, ...current];
       });
       setMessage(active
-        ? "Automação ativa. Novos leads entram na fila com o atraso configurado e usam a rotação selecionada."
+        ? "Automação ativa. Novos leads entram na fila e os envios respeitam o atraso e o intervalo configurados."
         : "Automação salva pausada.");
       router.refresh();
     } catch (error) {
@@ -179,14 +183,14 @@ export default function DisparosManager({ campaigns, senders, groups, automation
   return (
     <>
       <div className="topbar">
-        <div><h1>Disparos</h1><div className="subtitle">Grupo + campanhas + contas + tempo de espera. O restante fica na fila.</div></div>
+        <div><h1>Disparos</h1><div className="subtitle">Grupo + campanhas + contas + tempo de espera + intervalo entre envios.</div></div>
         <button className="btn secondary" onClick={processQueue} disabled={queueBusy}>{queueBusy ? "Processando..." : "Processar fila agora"}</button>
       </div>
 
       <div className="card automation-card">
         <div className="section-title">Automação de grupo</div>
         <div className="muted" style={{ marginBottom: 14 }}>
-          Os limites abaixo são controles internos da operação, não uma garantia contra restrições do WhatsApp. Use apenas para contatos com autorização válida.
+          O sistema roda em nuvem mesmo com o site fechado. O intervalo abaixo serve para escoar picos de fila sem mandar vários contatos pela mesma conta ao mesmo tempo.
         </div>
 
         <div className="field modal-field-gap">
@@ -222,6 +226,10 @@ export default function DisparosManager({ campaigns, senders, groups, automation
             <input className="input" type="number" min={0} max={1440} value={delayMinutes} onChange={(e) => setDelayMinutes(Math.max(0, Number(e.target.value || 0)))} />
           </div>
           <div className="field">
+            <label>Intervalo mínimo entre envios por conta (segundos)</label>
+            <input className="input" type="number" min={0} max={3600} value={sendIntervalSeconds} onChange={(e) => setSendIntervalSeconds(Math.max(0, Number(e.target.value || 0)))} />
+          </div>
+          <div className="field">
             <label>Limite diário por conta</label>
             <input className="input" type="number" min={1} max={1000} value={dailyLimit} onChange={(e) => setDailyLimit(Math.max(1, Number(e.target.value || 1)))} />
           </div>
@@ -248,7 +256,7 @@ export default function DisparosManager({ campaigns, senders, groups, automation
                 <div>
                   <div className="instance-name">{groupMap.get(item.group_id)?.name || "Grupo"}</div>
                   <div className="muted">{itemCampaigns.map((id) => campaignMap.get(id)?.name).filter(Boolean).join(" → ") || "Campanha"}</div>
-                  <div className="muted" style={{ marginTop: 4 }}>{itemSenders.map((id) => senderMap.get(id)?.name).filter(Boolean).join(" • ") || "Disparador"} · espera {Math.round(Number(item.delay_seconds || 0) / 60)} min · limite {item.daily_limit_per_sender || 40}/dia por conta</div>
+                  <div className="muted" style={{ marginTop: 4 }}>{itemSenders.map((id) => senderMap.get(id)?.name).filter(Boolean).join(" • ") || "Disparador"} · espera {Math.round(Number(item.delay_seconds || 0) / 60)} min · intervalo {Number(item.send_interval_seconds ?? 30)}s · limite {item.daily_limit_per_sender || 40}/dia por conta</div>
                 </div>
                 <span className={`badge ${item.active ? "ok" : "warn"}`}>{item.active ? "Ativa" : "Pausada"}</span>
               </button>
@@ -263,12 +271,12 @@ export default function DisparosManager({ campaigns, senders, groups, automation
       </div>
 
       <div className="section" style={{ marginTop: 26 }}>
-        <div className="row"><div><div className="section-title">Fila e histórico</div><div className="muted">Os novos leads aparecem aqui assim que entram no fluxo.</div></div></div>
+        <div className="row"><div><div className="section-title">Fila e histórico</div><div className="muted">Atualiza ao vivo. Se vários leads entrarem juntos, eles permanecem na fila e saem respeitando o intervalo configurado.</div></div></div>
         <div className="table-wrap" style={{ marginTop: 12 }}>
           <table>
             <thead><tr><th>Destinatário</th><th>Grupo</th><th>Campanha</th><th>Disparador</th><th>Status</th><th>Detalhe</th></tr></thead>
             <tbody>
-              {jobs.map((job) => <tr key={job.id}><td>{job.recipient ? `+${job.recipient}` : "—"}</td><td>{job.group_name || "—"}</td><td>{job.campaign_name || "—"}</td><td>{job.sender_name || "—"}</td><td><span className={`badge ${statusClass(job.status)}`}>{statusLabel(job.status)}</span></td><td className="muted">{job.error_message || (job.scheduled_at && new Date(job.scheduled_at).getTime() > Date.now() ? `Agendado para ${new Date(job.scheduled_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : job.processed_at ? "Concluído" : "Na fila")}</td></tr>)}
+              {jobs.map((job) => <tr key={job.id}><td>{job.recipient ? `+${job.recipient}` : "—"}</td><td>{job.group_name || "—"}</td><td>{job.campaign_name || "—"}</td><td>{job.sender_name || "—"}</td><td><span className={`badge ${statusClass(job.status)}`}>{statusLabel(job.status)}</span></td><td className="muted">{job.error_message || (job.scheduled_at && new Date(job.scheduled_at).getTime() > Date.now() ? `Agendado para ${new Date(job.scheduled_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : job.processed_at ? "Concluído" : "Na fila")}</td></tr>)}
               {!jobs.length ? <tr><td colSpan={6}>Nenhum disparo na fila ainda.</td></tr> : null}
             </tbody>
           </table>
