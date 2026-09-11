@@ -1,0 +1,67 @@
+:root {
+  --bg: #0b0d12;
+  --panel: #11151d;
+  --panel2: #171c26;
+  --border: #242b38;
+  --text: #f5f7fb;
+  --muted: #9aa4b2;
+  --brand: #8b5cf6;
+  --brand2: #a78bfa;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --bad: #ef4444;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+a { color: inherit; text-decoration: none; }
+button, input, textarea, select { font: inherit; }
+button { cursor: pointer; }
+
+.shell { min-height: 100vh; display: grid; grid-template-columns: 250px 1fr; }
+.sidebar { border-right: 1px solid var(--border); background: #0d1016; padding: 22px 16px; position: sticky; top: 0; height: 100vh; }
+.logo { font-size: 22px; font-weight: 800; letter-spacing: -0.4px; margin-bottom: 28px; display:flex; gap:10px; align-items:center; }
+.logo-badge { width: 34px; height: 34px; display:grid; place-items:center; border-radius:10px; background:linear-gradient(135deg,var(--brand),#5b21b6); }
+.nav { display:flex; flex-direction:column; gap:7px; }
+.nav a { padding: 10px 12px; border-radius: 10px; color:var(--muted); }
+.nav a:hover { background:var(--panel2); color:var(--text); }
+.content { padding: 30px; max-width: 1400px; width:100%; margin:0 auto; }
+.topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:26px; gap:16px; }
+h1 { font-size:30px; margin:0; letter-spacing:-.6px; }
+.subtitle { color:var(--muted); margin-top:6px; }
+.grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:16px; }
+.card { background:var(--panel); border:1px solid var(--border); border-radius:16px; padding:18px; }
+.metric { font-size:30px; font-weight:800; margin-top:12px; }
+.label { color:var(--muted); font-size:14px; }
+.badge { display:inline-flex; align-items:center; gap:6px; padding:5px 8px; border-radius:999px; font-size:12px; background:#1b2130; color:#cfd6e3; }
+.badge.ok { background:rgba(34,197,94,.12); color:#86efac; }
+.badge.warn { background:rgba(245,158,11,.12); color:#fcd34d; }
+.badge.bad { background:rgba(239,68,68,.12); color:#fca5a5; }
+.section { margin-top:24px; }
+.section-title { font-size:18px; font-weight:700; margin-bottom:12px; }
+.table-wrap { overflow:auto; border:1px solid var(--border); border-radius:14px; }
+table { width:100%; border-collapse:collapse; min-width:760px; background:var(--panel); }
+th, td { padding:13px 14px; text-align:left; border-bottom:1px solid var(--border); font-size:14px; }
+th { color:#c6cfda; background:#131821; }
+td { color:#e7ebf1; }
+tr:last-child td { border-bottom:none; }
+.btn { border:none; background:var(--brand); color:white; padding:10px 14px; border-radius:10px; font-weight:700; }
+.btn.secondary { background:var(--panel2); border:1px solid var(--border); color:var(--text); }
+.toolbar { display:flex; gap:10px; flex-wrap:wrap; }
+.input, .select, .textarea { width:100%; background:#0e1219; color:var(--text); border:1px solid var(--border); border-radius:10px; padding:11px 12px; outline:none; }
+.input:focus, .select:focus, .textarea:focus { border-color:var(--brand); }
+.form-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.field label { display:block; color:#c8d0db; font-size:13px; margin-bottom:7px; }
+.kpi-icon { width:38px; height:38px; border-radius:10px; display:grid; place-items:center; background:rgba(139,92,246,.12); color:#c4b5fd; }
+.row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.muted { color:var(--muted); }
+pre { white-space:pre-wrap; word-break:break-word; background:#0a0d12; border:1px solid var(--border); padding:14px; border-radius:12px; color:#c8d0db; }
+
+@media (max-width: 900px) {
+  .shell { grid-template-columns:1fr; }
+  .sidebar { position:static; height:auto; border-right:none; border-bottom:1px solid var(--border); }
+  .nav { flex-direction:row; overflow:auto; }
+  .grid { grid-template-columns:1fr; }
+  .content { padding:20px; }
+  .form-grid { grid-template-columns:1fr; }
+}
