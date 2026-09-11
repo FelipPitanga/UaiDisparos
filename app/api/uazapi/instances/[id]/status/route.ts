@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { processJob } from "@/lib/automation";
 
 function normalizeQr(value: unknown) {
   if (typeof value !== "string" || !value.trim()) return null;
@@ -13,7 +14,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     const supabase = getSupabaseAdmin();
     const { data: record, error } = await supabase
       .from("instances")
-      .select("id,base_url,api_token")
+      .select("id,base_url,api_token,status,instance_role")
       .eq("id", params.id)
       .single();
 
@@ -53,18 +54,39 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       : "disconnected";
     const phone = instance?.owner ?? item?.owner ?? instance?.phone ?? item?.phone ?? null;
     const qr = normalizeQr(instance?.qrcode ?? item?.qrcode ?? instance?.qrCode ?? item?.qrCode);
+    const now = new Date().toISOString();
 
     await supabase
       .from("instances")
       .update({
         status,
         phone: phone ? String(phone).replace(/\D/g, "") : null,
-        last_seen_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        last_seen_at: now,
+        updated_at: now,
       })
       .eq("id", record.id);
 
-    return NextResponse.json({ ok: true, status, phone, qrcode: qr });
+    let resumed = 0;
+    if (record.instance_role === "sender" && record.status !== "connected" && status === "connected") {
+      const { data: queuedJobs } = await supabase
+        .from("jobs")
+        .select("id")
+        .eq("instance_id", record.id)
+        .eq("status", "queued")
+        .order("created_at", { ascending: true })
+        .limit(20);
+
+      for (const job of queuedJobs ?? []) {
+        try {
+          await processJob(job.id);
+          resumed += 1;
+        } catch {
+          // Mantém o job na fila/estado definido por processJob.
+        }
+      }
+    }
+
+    return NextResponse.json({ ok: true, status, phone, qrcode: qr, resumed });
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "Erro ao consultar status." },
