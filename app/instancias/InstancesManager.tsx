@@ -43,6 +43,7 @@ export default function InstancesManager({ initialInstances }: Props) {
   const [name, setName] = useState("");
   const [role, setRole] = useState<InstanceRow["instance_role"]>("sender");
   const [busy, setBusy] = useState(false);
+  const [connectBusy, setConnectBusy] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [connectId, setConnectId] = useState<string | null>(null);
@@ -122,17 +123,18 @@ export default function InstancesManager({ initialInstances }: Props) {
     }
   }
 
-  async function connectInstance(id: string, mode: "qr" | "code") {
+  async function connectInstance(id: string, mode: "qr" | "code", reset = false) {
     const phone = phoneForCode.replace(/\D/g, "");
     if (mode === "code" && phone.length < 10) {
       setError("Informe o número com DDI + DDD. Ex.: 5562999999999.");
       return;
     }
 
+    setConnectBusy(true);
     setConnectId(id);
     setConnectMode(mode);
     setQrCode(null);
-    setPairCode(null);
+    if (!reset) setPairCode(null);
     setConnectionStatus("connecting");
     setError("");
 
@@ -140,7 +142,7 @@ export default function InstancesManager({ initialInstances }: Props) {
       const response = await fetch(`/api/uazapi/instances/${id}/connect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mode === "code" ? { phone } : {}),
+        body: JSON.stringify(mode === "code" ? { phone, reset } : {}),
       });
       const data = await response.json();
       if (!response.ok || !data?.ok) throw new Error(data?.error || "Não foi possível iniciar a conexão.");
@@ -160,8 +162,10 @@ export default function InstancesManager({ initialInstances }: Props) {
     } catch (err) {
       setConnectionStatus("error");
       setQrCode(null);
-      setPairCode(null);
+      if (!reset) setPairCode(null);
       setError(err instanceof Error ? err.message : "Erro ao iniciar conexão.");
+    } finally {
+      setConnectBusy(false);
     }
   }
 
@@ -246,23 +250,23 @@ export default function InstancesManager({ initialInstances }: Props) {
       ) : null}
 
       {connectId ? (
-        <div className="modal-backdrop" onMouseDown={() => setConnectId(null)}>
+        <div className="modal-backdrop" onMouseDown={() => !connectBusy && setConnectId(null)}>
           <div className="modal-card qr-modal" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="row modal-title-row"><div><div className="section-title">Conectar {selected?.name ?? "instância"}</div><div className="muted">Escolha QR Code ou código de pareamento.</div></div><button className="modal-close" onClick={() => setConnectId(null)}>×</button></div>
+            <div className="row modal-title-row"><div><div className="section-title">Conectar {selected?.name ?? "instância"}</div><div className="muted">Escolha QR Code ou código de pareamento.</div></div><button className="modal-close" onClick={() => setConnectId(null)} disabled={connectBusy}>×</button></div>
 
             {connectionStatus === "connected" ? (
               <div className="connection-success"><div className="success-icon">✓</div><div className="section-title">Conectado com sucesso</div><div className="muted">A instância já está pronta para uso no UaiDisparos.</div></div>
             ) : (
               <>
                 <div className="connect-methods">
-                  <button className={`btn ${connectMode === "qr" ? "" : "secondary"}`} onClick={() => { setConnectMode("qr"); setQrCode(null); setPairCode(null); setError(""); }}>QR Code</button>
-                  <button className={`btn ${connectMode === "code" ? "" : "secondary"}`} onClick={() => { setConnectMode("code"); setQrCode(null); setPairCode(null); setError(""); }}>Código</button>
+                  <button className={`btn ${connectMode === "qr" ? "" : "secondary"}`} disabled={connectBusy} onClick={() => { setConnectMode("qr"); setQrCode(null); setPairCode(null); setError(""); }}>QR Code</button>
+                  <button className={`btn ${connectMode === "code" ? "" : "secondary"}`} disabled={connectBusy} onClick={() => { setConnectMode("code"); setQrCode(null); setPairCode(null); setError(""); }}>Código</button>
                 </div>
 
                 {connectMode === "code" ? (
                   <div className="field modal-field-gap">
                     <label>Número do WhatsApp</label>
-                    <input className="input" value={phoneForCode} onChange={(e) => setPhoneForCode(e.target.value)} placeholder="5562999999999" inputMode="numeric" />
+                    <input className="input" disabled={connectBusy} value={phoneForCode} onChange={(e) => setPhoneForCode(e.target.value)} placeholder="5562999999999" inputMode="numeric" />
                     <div className="muted code-help">Use DDI + DDD + número, somente números.</div>
                   </div>
                 ) : null}
@@ -277,8 +281,16 @@ export default function InstancesManager({ initialInstances }: Props) {
 
                 {error ? <div className="alert-error compact">{error}</div> : null}
 
-                <button className="btn full-btn modal-field-gap" onClick={() => connectId && connectInstance(connectId, connectMode)}>
-                  {connectMode === "code" ? "Gerar código de pareamento" : "Gerar QR Code"}
+                <button
+                  className="btn full-btn modal-field-gap"
+                  disabled={connectBusy}
+                  onClick={() => connectId && connectInstance(connectId, connectMode, connectMode === "code" && Boolean(pairCode))}
+                >
+                  {connectBusy
+                    ? (connectMode === "code" ? "Gerando código..." : "Gerando QR...")
+                    : connectMode === "code"
+                      ? (pairCode ? "Gerar novo código" : "Gerar código de pareamento")
+                      : "Gerar QR Code"}
                 </button>
               </>
             )}
