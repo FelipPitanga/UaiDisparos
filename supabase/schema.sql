@@ -9,7 +9,7 @@ create table if not exists public.instances (
   status text not null default 'disconnected' check (status in ('disconnected','connecting','connected','hibernated','error')),
   base_url text,
   webhook_enabled boolean not null default false,
-  instance_role text not null default 'sender' check (instance_role in ('monitor','sender','both')),
+  instance_role text not null default 'sender' check (instance_role in ('monitor','sender')),
   api_token text,
   system_name text,
   last_seen_at timestamptz,
@@ -42,6 +42,9 @@ create table if not exists public.leads (
   lid text,
   name text,
   source text not null default 'group_join',
+  source_group_external_id text,
+  dedupe_key text,
+  capture_count integer not null default 1,
   consent_status text not null default 'unknown' check (consent_status in ('unknown','opted_in','opted_out','manual_authorized')),
   status text not null default 'captured' check (status in ('captured','queued','processed','suppressed','error')),
   first_seen_at timestamptz not null default now(),
@@ -51,7 +54,7 @@ create table if not exists public.leads (
   updated_at timestamptz not null default now()
 );
 
-create unique index if not exists leads_group_participant_uidx on public.leads(group_id, external_participant_id) where group_id is not null;
+create unique index if not exists leads_dedupe_key_unique on public.leads(dedupe_key) where dedupe_key is not null;
 
 create table if not exists public.campaigns (
   id uuid primary key default gen_random_uuid(),
@@ -59,9 +62,22 @@ create table if not exists public.campaigns (
   status text not null default 'draft' check (status in ('draft','active','paused','completed','archived')),
   text_content text,
   media_url text,
+  media_type text not null default 'none' check (media_type in ('none','image','video','audio','ptt','document','sticker')),
+  footer_text text,
   buttons jsonb not null default '[]'::jsonb,
   target_rule jsonb not null default '{}'::jsonb,
   require_consent boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.group_automations (
+  id uuid primary key default gen_random_uuid(),
+  group_id uuid not null unique references public.groups(id) on delete cascade,
+  campaign_id uuid not null references public.campaigns(id) on delete cascade,
+  sender_instance_id uuid not null references public.instances(id) on delete cascade,
+  active boolean not null default false,
+  authorization_confirmed boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -71,7 +87,11 @@ create table if not exists public.jobs (
   campaign_id uuid references public.campaigns(id) on delete cascade,
   lead_id uuid references public.leads(id) on delete cascade,
   instance_id uuid references public.instances(id) on delete set null,
-  status text not null default 'queued' check (status in ('queued','processing','sent','failed','cancelled','blocked')),
+  group_id uuid references public.groups(id) on delete set null,
+  automation_id uuid references public.group_automations(id) on delete set null,
+  recipient text,
+  dedupe_key text,
+  status text not null default 'queued' check (status in ('queued','processing','sent','failed','paused','cancelled','blocked')),
   attempts integer not null default 0,
   scheduled_at timestamptz,
   processed_at timestamptz,
@@ -81,6 +101,9 @@ create table if not exists public.jobs (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+create unique index if not exists jobs_dedupe_key_unique on public.jobs(dedupe_key) where dedupe_key is not null;
+create index if not exists jobs_status_created_idx on public.jobs(status, created_at);
 
 create table if not exists public.webhook_events (
   id bigint generated always as identity primary key,
@@ -113,6 +136,7 @@ alter table public.instances enable row level security;
 alter table public.groups enable row level security;
 alter table public.leads enable row level security;
 alter table public.campaigns enable row level security;
+alter table public.group_automations enable row level security;
 alter table public.jobs enable row level security;
 alter table public.webhook_events enable row level security;
 alter table public.suppression_list enable row level security;
