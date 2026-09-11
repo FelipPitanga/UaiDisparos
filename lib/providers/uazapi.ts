@@ -104,19 +104,51 @@ export class UazapiProvider {
   }
 
   normalizeWebhook(payload: any): NormalizedGroupEvent {
+    const groupEvent = payload?.event;
+    const groupId = typeof groupEvent?.JID === "string"
+      ? groupEvent.JID
+      : payload?.groupId ?? payload?.chatId ?? payload?.data?.groupId ?? payload?.data?.id ?? null;
+
+    const joined = Array.isArray(groupEvent?.Join) ? groupEvent.Join : [];
+    const joinedLids = Array.isArray(groupEvent?.JoinLid) ? groupEvent.JoinLid : [];
+    const left = Array.isArray(groupEvent?.Leave) ? groupEvent.Leave : [];
+
+    if (joined.length > 0) {
+      const participantId = typeof joined[0] === "string" ? joined[0] : null;
+      const phone = participantId?.includes("@s.whatsapp.net") ? participantId.split("@")[0] : null;
+      const lid = typeof joinedLids[0] === "string" ? joinedLids[0] : null;
+
+      return {
+        type: "participant_joined",
+        groupId: groupId ?? undefined,
+        participantId: participantId ?? lid ?? undefined,
+        phone,
+        lid,
+        raw: payload,
+      };
+    }
+
+    if (left.length > 0) {
+      const participantId = typeof left[0] === "string" ? left[0] : null;
+      const phone = participantId?.includes("@s.whatsapp.net") ? participantId.split("@")[0] : null;
+      const lid = participantId?.includes("@lid") ? participantId : null;
+
+      return {
+        type: "participant_left",
+        groupId: groupId ?? undefined,
+        participantId: participantId ?? undefined,
+        phone,
+        lid,
+        raw: payload,
+      };
+    }
+
     const event = String(payload?.event ?? payload?.type ?? "").toLowerCase();
     const participantId =
       payload?.participant ??
       payload?.data?.participant ??
       payload?.data?.participants?.[0] ??
       payload?.sender ??
-      null;
-
-    const groupId =
-      payload?.groupId ??
-      payload?.chatId ??
-      payload?.data?.groupId ??
-      payload?.data?.id ??
       null;
 
     const value = typeof participantId === "string" ? participantId : null;
