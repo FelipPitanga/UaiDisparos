@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import DisparosManager from "./DisparosManager";
+import LiveRefresh from "./LiveRefresh";
 
 export const dynamic = "force-dynamic";
 
@@ -31,5 +32,18 @@ export default async function DisparosPage() {
     sender_name: job.instance_id ? senderMap.get(job.instance_id) : undefined,
   }));
 
-  return <DisparosManager campaigns={campaigns as any} senders={senders as any} groups={groups as any} automations={automations as any} jobs={jobsWithNames as any} />;
+  return (
+    <>
+      <div className="row" style={{ justifyContent: "flex-end", marginBottom: 10 }}>
+        <LiveRefresh intervalMs={2000} />
+      </div>
+      <DisparosManager
+        campaigns={campaigns as any}
+        senders={senders as any}
+        groups={groups as any}
+        automations={automations as any}
+        jobs={jobsWithNames as any}
+      />
+    </>
+  );
 }
