@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type LastEvent = {
   id: number;
@@ -23,6 +23,8 @@ type Props = {
   providerEvents: string[];
   providerError: string | null;
   expectedUrl: string | null;
+  endpointReachable: boolean;
+  endpointError: string | null;
   lastEvent: LastEvent;
 };
 
@@ -43,12 +45,17 @@ export default function WebhookStatus(props: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const urlMatches = Boolean(props.providerUrl && props.expectedUrl && props.providerUrl === props.expectedUrl);
   const groupsEventEnabled = props.providerEvents.includes("groups");
-  const healthy = props.dbEnabled && props.providerEnabled && urlMatches && groupsEventEnabled && !props.providerError;
+  const healthy = props.dbEnabled && props.providerEnabled && urlMatches && groupsEventEnabled && props.endpointReachable && !props.providerError;
+
+  useEffect(() => {
+    const timer = window.setInterval(() => router.refresh(), 4000);
+    return () => window.clearInterval(timer);
+  }, [router]);
 
   async function refresh() {
     setRefreshing(true);
     router.refresh();
-    window.setTimeout(() => setRefreshing(false), 600);
+    window.setTimeout(() => setRefreshing(false), 700);
   }
 
   return (
@@ -56,11 +63,11 @@ export default function WebhookStatus(props: Props) {
       <div className="row" style={{ alignItems: "flex-start" }}>
         <div>
           <div className="section-title" style={{ marginBottom: 4 }}>Diagnóstico do webhook</div>
-          <div className="muted">{props.monitorName}</div>
+          <div className="muted">{props.monitorName} • atualiza sozinho a cada 4s</div>
         </div>
         <div className="toolbar">
           <span className={`badge ${healthy ? "ok" : "warn"}`}>{healthy ? "Tudo certo" : "Revisar webhook"}</span>
-          <button className="btn secondary" onClick={refresh} disabled={refreshing}>{refreshing ? "Atualizando..." : "Atualizar status"}</button>
+          <button className="btn secondary" onClick={refresh} disabled={refreshing}>{refreshing ? "Atualizando..." : "Atualizar agora"}</button>
         </div>
       </div>
 
@@ -69,6 +76,12 @@ export default function WebhookStatus(props: Props) {
           <div className="label">Status na UAZAPI</div>
           <div style={{ marginTop: 8, fontWeight: 800 }}>{props.providerError ? "Erro ao consultar" : props.providerEnabled ? "Ativo" : "Inativo"}</div>
           <div className="muted" style={{ marginTop: 6 }}>{props.providerError ?? (groupsEventEnabled ? "evento groups habilitado" : "evento groups não encontrado")}</div>
+        </div>
+
+        <div className="card">
+          <div className="label">Endpoint público</div>
+          <div style={{ marginTop: 8, fontWeight: 800 }}>{props.endpointReachable ? "Acessível" : "Indisponível"}</div>
+          <div className="muted" style={{ marginTop: 6 }}>{props.endpointError ?? "tunnel respondeu corretamente"}</div>
         </div>
 
         <div className="card">
