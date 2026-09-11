@@ -41,6 +41,7 @@ export default function DisparosManager({ campaigns, senders, groups, automation
   const [active, setActive] = useState(true);
   const [authorized, setAuthorized] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [actionBusyId, setActionBusyId] = useState<string | null>(null);
   const [queueBusy, setQueueBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -79,12 +80,57 @@ export default function DisparosManager({ campaigns, senders, groups, automation
         const exists = current.some((x) => x.group_id === data.automation.group_id);
         return exists ? current.map((x) => x.group_id === data.automation.group_id ? data.automation : x) : [data.automation, ...current];
       });
-      setMessage(active ? "Automação ativa. Novos leads desse grupo já entram no fluxo." : "Automação salva pausada.");
+      setMessage(active
+        ? "Automação ativa. A partir de agora, todo NOVO lead desse grupo entra na fila e é enviado automaticamente pelo chip escolhido."
+        : "Automação salva pausada.");
       router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Erro ao salvar automação.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function toggleAutomation(item: Automation) {
+    setActionBusyId(item.id);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/automations/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: !item.active }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.ok) throw new Error(data?.error || "Falha ao alterar automação.");
+      setAutomations((current) => current.map((x) => x.id === item.id ? data.automation : x));
+      setMessage(data.automation.active
+        ? "Automação reativada. Os próximos novos leads serão disparados automaticamente."
+        : "Automação pausada. Nenhum novo lead desse grupo será disparado enquanto estiver pausada.");
+      router.refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Erro ao alterar automação.");
+    } finally {
+      setActionBusyId(null);
+    }
+  }
+
+  async function deleteAutomation(item: Automation) {
+    const groupName = groupMap.get(item.group_id)?.name || "este grupo";
+    if (!window.confirm(`Excluir a automação de \"${groupName}\"?\n\nOs disparos futuros desse grupo serão interrompidos.`)) return;
+
+    setActionBusyId(item.id);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/automations/${item.id}`, { method: "DELETE" });
+      const data = await response.json();
+      if (!response.ok || !data?.ok) throw new Error(data?.error || "Falha ao excluir automação.");
+      setAutomations((current) => current.filter((x) => x.id !== item.id));
+      setMessage("Automação excluída.");
+      router.refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Erro ao excluir automação.");
+    } finally {
+      setActionBusyId(null);
     }
   }
 
@@ -113,6 +159,9 @@ export default function DisparosManager({ campaigns, senders, groups, automation
 
       <div className="card automation-card">
         <div className="section-title">Automação de grupo</div>
+        <div className="muted" style={{ marginBottom: 14 }}>
+          Ao salvar como ativa, somente os NOVOS números que entrarem nesse grupo a partir daí serão enviados automaticamente, sem precisar apertar outro botão.
+        </div>
         <div className="form-grid modal-field-gap">
           <div className="field"><label>Grupo que gera os leads</label><select className="select" value={groupId} onChange={(e) => setGroupId(e.target.value)}>{groups.map((g) => <option key={g.id} value={g.id}>{g.name || g.external_id}</option>)}</select></div>
           <div className="field"><label>Campanha</label><select className="select" value={campaignId} onChange={(e) => setCampaignId(e.target.value)}>{campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
@@ -133,10 +182,21 @@ export default function DisparosManager({ campaigns, senders, groups, automation
         <div className="section-title">Automações configuradas</div>
         <div className="automation-list">
           {automations.map((item) => (
-            <button className="card automation-row" key={item.id} onClick={() => loadAutomation(item)}>
-              <div><div className="instance-name">{groupMap.get(item.group_id)?.name || "Grupo"}</div><div className="muted">{campaignMap.get(item.campaign_id)?.name || "Campanha"} → {senderMap.get(item.sender_instance_id)?.name || "Disparador"}</div></div>
-              <span className={`badge ${item.active ? "ok" : "warn"}`}>{item.active ? "Ativa" : "Pausada"}</span>
-            </button>
+            <div className="card automation-row" key={item.id}>
+              <button className="automation-main" onClick={() => loadAutomation(item)}>
+                <div>
+                  <div className="instance-name">{groupMap.get(item.group_id)?.name || "Grupo"}</div>
+                  <div className="muted">{campaignMap.get(item.campaign_id)?.name || "Campanha"} → {senderMap.get(item.sender_instance_id)?.name || "Disparador"}</div>
+                </div>
+                <span className={`badge ${item.active ? "ok" : "warn"}`}>{item.active ? "Ativa" : "Pausada"}</span>
+              </button>
+              <div className="automation-actions">
+                <button className="btn secondary" onClick={() => toggleAutomation(item)} disabled={actionBusyId === item.id}>
+                  {actionBusyId === item.id ? "Aguarde..." : item.active ? "Pausar disparo" : "Reativar disparo"}
+                </button>
+                <button className="btn danger-btn" onClick={() => deleteAutomation(item)} disabled={actionBusyId === item.id}>Excluir disparo</button>
+              </div>
+            </div>
           ))}
           {!automations.length ? <div className="card empty-state">Nenhuma automação configurada.</div> : null}
         </div>
