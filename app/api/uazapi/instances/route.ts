@@ -22,10 +22,17 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
     const name = cleanName(body?.name);
-    const role = ["monitor", "sender", "both"].includes(body?.role) ? body.role : "sender";
+    const role = body?.role === "monitor" ? "monitor" : body?.role === "sender" ? "sender" : null;
 
     if (!name) {
       return NextResponse.json({ ok: false, error: "Informe um nome para a instância." }, { status: 400 });
+    }
+
+    if (!role) {
+      return NextResponse.json(
+        { ok: false, error: "Escolha Monitorador ou Disparador. Cada instância deve ter uma única função." },
+        { status: 400 },
+      );
     }
 
     const supabase = getSupabaseAdmin();
