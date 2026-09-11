@@ -13,6 +13,34 @@ function cleanPhone(value: unknown) {
   return phone.length >= 10 ? phone : "";
 }
 
+function findPairCode(value: any): string | null {
+  if (!value || typeof value !== "object") return null;
+
+  const keys = [
+    "paircode",
+    "pairCode",
+    "pairingcode",
+    "pairingCode",
+    "pair_code",
+    "pairing_code",
+    "code",
+  ];
+
+  for (const key of keys) {
+    const candidate = value?.[key];
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+
+  for (const child of Object.values(value)) {
+    if (child && typeof child === "object") {
+      const found = findPairCode(child);
+      if (found) return found;
+    }
+  }
+
+  return null;
+}
+
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
     const supabase = getSupabaseAdmin();
@@ -33,25 +61,14 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const body = await request.json().catch(() => ({}));
     const phone = cleanPhone(body?.phone);
     const baseUrl = String(record.base_url).replace(/\/$/, "");
-    const headers = {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      token: record.api_token,
-    };
-
-    // Se já existia uma tentativa por QR em andamento, encerra antes de pedir o pair code.
-    if (phone) {
-      await fetch(`${baseUrl}/instance/disconnect`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({}),
-        cache: "no-store",
-      }).catch(() => null);
-    }
 
     const response = await fetch(`${baseUrl}/instance/connect`, {
       method: "POST",
-      headers,
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        token: record.api_token,
+      },
       body: JSON.stringify(phone ? { phone } : {}),
       cache: "no-store",
     });
@@ -73,9 +90,9 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     const item = Array.isArray(provider) ? provider[0] : provider;
     const instance = item?.instance ?? item ?? {};
-    const pairCode = instance?.paircode ?? item?.paircode ?? instance?.pairCode ?? item?.pairCode ?? instance?.code ?? item?.code ?? null;
+    const pairCode = phone ? findPairCode(provider) : null;
     const qr = phone ? null : normalizeQr(instance?.qrcode ?? item?.qrcode ?? instance?.qrCode ?? item?.qrCode);
-    const nextStatus = instance?.status === "connected" ? "connected" : "connecting";
+    const nextStatus = instance?.status === "connected" || item?.status === "connected" ? "connected" : "connecting";
 
     await supabase
       .from("instances")
@@ -84,12 +101,21 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     if (phone && !pairCode) {
       return NextResponse.json(
-        { ok: false, error: "A UAZAPI não retornou o código de pareamento. Tente gerar novamente em alguns segundos." },
+        {
+          ok: false,
+          error: "A UAZAPI respondeu à solicitação, mas não devolveu o código de pareamento. Confira o número e tente novamente.",
+        },
         { status: 502 },
       );
     }
 
-    return NextResponse.json({ ok: true, qrcode: qr, pairCode, status: nextStatus, method: phone ? "code" : "qr" });
+    return NextResponse.json({
+      ok: true,
+      qrcode: qr,
+      pairCode,
+      status: nextStatus,
+      method: phone ? "code" : "qr",
+    });
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "Erro ao iniciar conexão." },
