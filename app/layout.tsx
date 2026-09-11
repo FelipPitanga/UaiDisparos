@@ -1,6 +1,6 @@
 import "./globals.css";
 import Link from "next/link";
-import { Activity, LayoutDashboard, Smartphone, Users, UserRound, Megaphone, Send } from "lucide-react";
+import { Activity, LayoutDashboard, Smartphone, Users, UserRound, Megaphone, Send, MessageCircle } from "lucide-react";
 
 export const metadata = {
   title: "UaiDisparos",
@@ -13,7 +13,8 @@ const nav = [
   ["/grupos", "Grupos", Users],
   ["/leads", "Leads", UserRound],
   ["/campanhas", "Campanhas", Megaphone],
-  ["/disparos", "Disparos", Send],
+  ["/disparos", "Disparo em grupo", Send],
+  ["/disparos/privado", "Disparo privado", MessageCircle],
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
