@@ -12,6 +12,14 @@ function sanitizePayload(payload: any) {
   return copy;
 }
 
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    service: "uaidisparos-uazapi-webhook",
+    timestamp: new Date().toISOString(),
+  });
+}
+
 export async function POST(req: NextRequest) {
   const payload = await req.json().catch(() => null);
   if (!payload) return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400 });
