@@ -14,16 +14,6 @@ type GroupLike = {
   external_id: string;
 };
 
-type CampaignLike = {
-  id: string;
-  name: string;
-  text_content: string | null;
-  media_url: string | null;
-  media_type: string | null;
-  buttons: any;
-  footer_text: string | null;
-};
-
 export function renderCampaignText(template: string | null, lead: LeadLike, group: GroupLike) {
   const now = new Date();
   const replacements: Record<string, string> = {
@@ -45,8 +35,8 @@ function normalizeButtons(buttons: any) {
   if (!Array.isArray(buttons)) return [];
   return buttons
     .map((button, index) => ({
-      label: String(button?.label || button?.text || "").trim().slice(0, 30),
-      value: String(button?.value || button?.id || "").trim().slice(0, 250),
+      label: String(button?.label || button?.text || button?.value || "").trim().slice(0, 30),
+      value: String(button?.value || button?.id || `btn_${index + 1}`).trim().slice(0, 250),
       type: ["reply", "url", "call", "copy"].includes(String(button?.type)) ? String(button.type) : "reply",
       id: String(button?.id || `btn_${index + 1}`).trim().slice(0, 50),
     }))
@@ -58,6 +48,11 @@ function tenSecondBucket(sourceTimestamp?: string | null) {
   const parsed = sourceTimestamp ? Date.parse(sourceTimestamp) : NaN;
   const value = Number.isFinite(parsed) ? parsed : Date.now();
   return new Date(Math.floor(value / 10000) * 10000).toISOString();
+}
+
+function isDisconnectedSessionError(message: string) {
+  const value = message.toLowerCase();
+  return value.includes("whatsapp disconnected") || value.includes("session is not reconnectable") || value.includes("uazapi request failed: 503");
 }
 
 export async function processJob(jobId: string) {
@@ -91,7 +86,7 @@ export async function processJob(jobId: string) {
   }
 
   if (sender.instance_role !== "sender" || sender.status !== "connected" || !sender.base_url || !sender.api_token) {
-    await supabase.from("jobs").update({ status: "queued", error_message: "Disparador offline", updated_at: new Date().toISOString() }).eq("id", job.id);
+    await supabase.from("jobs").update({ status: "queued", error_message: "Disparador offline — aguardando reconexão", processed_at: null, updated_at: new Date().toISOString() }).eq("id", job.id);
     return { ok: false, queued: true, error: "Disparador offline" };
   }
 
@@ -165,6 +160,21 @@ export async function processJob(jobId: string) {
     return { ok: true, sent: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro no envio";
+
+    if (isDisconnectedSessionError(message)) {
+      const now = new Date().toISOString();
+      await Promise.all([
+        supabase.from("instances").update({ status: "disconnected", updated_at: now }).eq("id", sender.id),
+        supabase.from("jobs").update({
+          status: "queued",
+          error_message: "Disparador desconectado — aguardando reconexão",
+          processed_at: null,
+          updated_at: now,
+        }).eq("id", job.id),
+      ]);
+      return { ok: false, queued: true, disconnected: true, error: message };
+    }
+
     await supabase.from("jobs").update({ status: "failed", error_message: message, processed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", job.id);
     return { ok: false, error: message };
   }
