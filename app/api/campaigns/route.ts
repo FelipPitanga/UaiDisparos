@@ -5,12 +5,14 @@ export const dynamic = "force-dynamic";
 
 function cleanButtons(value: any) {
   if (!Array.isArray(value)) return [];
-  return value.slice(0, 3).map((item, index) => ({
-    id: String(item?.id || `btn_${index + 1}`).trim().slice(0, 50),
-    label: String(item?.label || "").trim().slice(0, 30),
-    value: String(item?.value || "").trim().slice(0, 250),
-    type: ["reply", "url", "call", "copy"].includes(String(item?.type)) ? String(item.type) : "reply",
-  })).filter((item) => item.label && item.value);
+  return value.slice(0, 3).map((item, index) => {
+    const id = String(item?.id || `btn_${index + 1}`).trim().slice(0, 50);
+    const label = String(item?.label || "").trim().slice(0, 30);
+    const type = ["reply", "url", "call", "copy"].includes(String(item?.type)) ? String(item.type) : "reply";
+    const rawValue = String(item?.value || "").trim().slice(0, 250);
+    const value = type === "reply" ? (rawValue || id) : rawValue;
+    return { id, label, value, type };
+  }).filter((item) => item.label && item.value);
 }
 
 export async function POST(req: NextRequest) {
