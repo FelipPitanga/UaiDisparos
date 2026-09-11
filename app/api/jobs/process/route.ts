@@ -10,7 +10,7 @@ export async function POST() {
     const { data: jobs, error } = await supabase
       .from("jobs")
       .select("id")
-      .in("status", ["queued", "failed"])
+      .eq("status", "queued")
       .order("created_at", { ascending: true })
       .limit(20);
 
