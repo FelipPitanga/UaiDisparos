@@ -1,102 +1,35 @@
-"use client";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
+import DisparosManager from "./DisparosManager";
 
-import { useState } from "react";
+export const dynamic = "force-dynamic";
 
-export default function DisparosPage() {
-  const [number, setNumber] = useState("");
-  const [text, setText] = useState("");
-  const [mediaUrl, setMediaUrl] = useState("");
-  const [mediaType, setMediaType] = useState("image");
-  const [authorized, setAuthorized] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState("");
+export default async function DisparosPage() {
+  const supabase = getSupabaseAdmin();
 
-  async function handleSend() {
-    try {
-      setLoading(true);
-      setResult("");
-      const response = await fetch("/api/uazapi/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ number, text, mediaUrl, mediaType, authorized }),
-      });
+  const [campaignsResult, sendersResult, groupsResult, automationsResult, jobsResult] = await Promise.all([
+    supabase.from("campaigns").select("id,name,text_content").eq("status", "active").order("created_at", { ascending: false }),
+    supabase.from("instances").select("id,name,status,phone").eq("instance_role", "sender").order("created_at", { ascending: true }),
+    supabase.from("groups").select("id,name,external_id,monitoring_enabled").order("name", { ascending: true }),
+    supabase.from("group_automations").select("id,group_id,campaign_id,sender_instance_id,active,authorization_confirmed").order("created_at", { ascending: false }),
+    supabase.from("jobs").select("id,recipient,status,error_message,created_at,processed_at,campaign_id,group_id,instance_id").order("created_at", { ascending: false }).limit(100),
+  ]);
 
-      const data = await response.json();
-      if (!response.ok || !data.ok) throw new Error(data.error || "Falha no envio.");
-      setResult("Mensagem enviada com sucesso.");
-    } catch (error) {
-      setResult(error instanceof Error ? error.message : "Erro ao enviar mensagem.");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const campaigns = campaignsResult.data ?? [];
+  const senders = sendersResult.data ?? [];
+  const groups = groupsResult.data ?? [];
+  const automations = automationsResult.data ?? [];
+  const jobs = jobsResult.data ?? [];
 
-  return (
-    <>
-      <div className="topbar">
-        <div>
-          <h1>Disparos</h1>
-          <div className="subtitle">Teste de envio direto pela instância UAZAPI conectada.</div>
-        </div>
-      </div>
+  const campaignMap = new Map(campaigns.map((x) => [x.id, x.name]));
+  const groupMap = new Map(groups.map((x) => [x.id, x.name || x.external_id]));
+  const senderMap = new Map(senders.map((x) => [x.id, x.name]));
 
-      <div className="card" style={{ maxWidth: 820 }}>
-        <div className="form-grid">
-          <div className="field">
-            <label>Número / Chat ID</label>
-            <input
-              className="input"
-              value={number}
-              onChange={(e) => setNumber(e.target.value)}
-              placeholder="5562999999999"
-            />
-          </div>
-          <div className="field">
-            <label>Tipo de mídia</label>
-            <select className="select" value={mediaType} onChange={(e) => setMediaType(e.target.value)}>
-              <option value="image">Imagem</option>
-              <option value="video">Vídeo</option>
-              <option value="audio">Áudio</option>
-              <option value="ptt">Áudio PTT</option>
-              <option value="document">Documento</option>
-              <option value="sticker">Sticker</option>
-            </select>
-          </div>
-        </div>
+  const jobsWithNames = jobs.map((job) => ({
+    ...job,
+    campaign_name: job.campaign_id ? campaignMap.get(job.campaign_id) : undefined,
+    group_name: job.group_id ? groupMap.get(job.group_id) : undefined,
+    sender_name: job.instance_id ? senderMap.get(job.instance_id) : undefined,
+  }));
 
-        <div className="field" style={{ marginTop: 14 }}>
-          <label>Mensagem</label>
-          <textarea
-            className="textarea"
-            rows={7}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Digite a mensagem de teste..."
-          />
-        </div>
-
-        <div className="field" style={{ marginTop: 14 }}>
-          <label>URL da mídia (opcional)</label>
-          <input
-            className="input"
-            value={mediaUrl}
-            onChange={(e) => setMediaUrl(e.target.value)}
-            placeholder="https://..."
-          />
-        </div>
-
-        <label style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 16 }}>
-          <input type="checkbox" checked={authorized} onChange={(e) => setAuthorized(e.target.checked)} />
-          <span className="muted">Confirmo que este destinatário autorizou o contato ou é um número de teste meu.</span>
-        </label>
-
-        <div className="toolbar" style={{ marginTop: 18, alignItems: "center" }}>
-          <button className="btn" onClick={handleSend} disabled={loading || !authorized}>
-            {loading ? "Enviando..." : "Enviar teste"}
-          </button>
-          {result ? <span className="subtitle" style={{ marginTop: 0 }}>{result}</span> : null}
-        </div>
-      </div>
-    </>
-  );
+  return <DisparosManager campaigns={campaigns as any} senders={senders as any} groups={groups as any} automations={automations as any} jobs={jobsWithNames as any} />;
 }
