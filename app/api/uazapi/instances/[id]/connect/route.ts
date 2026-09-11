@@ -41,6 +41,8 @@ function findPairCode(value: any): string | null {
   return null;
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
     const supabase = getSupabaseAdmin();
@@ -60,15 +62,41 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     const body = await request.json().catch(() => ({}));
     const phone = cleanPhone(body?.phone);
+    const reset = body?.reset === true;
     const baseUrl = String(record.base_url).replace(/\/$/, "");
+    const headers = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      token: record.api_token,
+    };
+
+    if (reset && phone) {
+      const disconnect = await fetch(`${baseUrl}/instance/disconnect`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({}),
+        cache: "no-store",
+      });
+
+      if (!disconnect.ok && disconnect.status !== 409) {
+        const detail = await disconnect.text().catch(() => "");
+        return NextResponse.json(
+          { ok: false, error: `Não foi possível resetar a tentativa anterior. UAZAPI ${disconnect.status}${detail ? `: ${detail}` : ""}` },
+          { status: 502 },
+        );
+      }
+
+      await supabase
+        .from("instances")
+        .update({ status: "disconnected", updated_at: new Date().toISOString() })
+        .eq("id", record.id);
+
+      await sleep(1200);
+    }
 
     const response = await fetch(`${baseUrl}/instance/connect`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        token: record.api_token,
-      },
+      headers,
       body: JSON.stringify(phone ? { phone } : {}),
       cache: "no-store",
     });
@@ -115,6 +143,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
       pairCode,
       status: nextStatus,
       method: phone ? "code" : "qr",
+      reset,
     });
   } catch (error) {
     return NextResponse.json(
