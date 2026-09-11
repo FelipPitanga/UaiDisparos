@@ -30,6 +30,15 @@ function buttonIcon(type: ButtonItem["type"]) {
   return "↩";
 }
 
+function buttonPreviewLabel(button: ButtonItem) {
+  if (button.label.trim()) return button.label.trim();
+  if (button.value.trim()) return button.value.trim();
+  if (button.type === "url") return "Visite nosso site";
+  if (button.type === "call") return "Fale conosco";
+  if (button.type === "copy") return "Copiar código";
+  return "Responder";
+}
+
 export default function CampaignsManager({ initialCampaigns }: Props) {
   const router = useRouter();
   const [campaigns, setCampaigns] = useState(initialCampaigns);
@@ -51,7 +60,7 @@ export default function CampaignsManager({ initialCampaigns }: Props) {
     .replace(/{{\s*hora\s*}}/gi, "18:00"), [text]);
 
   const activeButtons = useMemo(
-    () => buttons.filter((b) => b.label.trim() && (b.type === "reply" || b.value.trim())),
+    () => buttons.filter((b) => b.label.trim() || b.value.trim()),
     [buttons],
   );
 
@@ -91,6 +100,7 @@ export default function CampaignsManager({ initialCampaigns }: Props) {
         footer_text: footerText,
         buttons: activeButtons.map((button) => ({
           ...button,
+          label: buttonPreviewLabel(button),
           value: button.type === "reply" ? (button.value.trim() || button.id) : button.value.trim(),
         })),
         status: "active",
@@ -156,7 +166,7 @@ export default function CampaignsManager({ initialCampaigns }: Props) {
           <div className="field modal-field-gap"><label>Rodapé dos botões</label><input className="input" value={footerText} onChange={(e) => setFooterText(e.target.value)} placeholder="Opcional" /></div>
 
           <div className="section-title modal-field-gap">Botões interativos</div>
-          <div className="muted code-help">Até 3 botões. Em “Resposta”, o terceiro campo é opcional. Para URL use o link; para chamada use o telefone; para copiar use o código.</div>
+          <div className="muted code-help">Até 3 botões. Preencheu o texto ou o valor, ele já aparece na prévia ao lado.</div>
           {buttons.map((button, index) => (
             <div className="button-editor-row" key={button.id}>
               <input className="input" value={button.label} onChange={(e) => updateButton(index, "label", e.target.value)} placeholder={`Texto do botão ${index + 1}`} />
@@ -193,11 +203,15 @@ export default function CampaignsManager({ initialCampaigns }: Props) {
                   <div className="wa-actions">
                     {activeButtons.map((button) => (
                       <div className="wa-action-button" key={button.id}>
-                        <span>{buttonIcon(button.type)}</span>{button.label}
+                        <span>{buttonIcon(button.type)}</span>{buttonPreviewLabel(button)}
                       </div>
                     ))}
                   </div>
-                ) : null}
+                ) : (
+                  <div className="wa-actions wa-actions-empty">
+                    <div className="wa-action-button preview-placeholder">＋ Adicione um botão para visualizar aqui</div>
+                  </div>
+                )}
               </div>
             </div>
             <div className="wa-composer"><span>＋</span><div>Mensagem</div><span>◉</span><span>🎤</span></div>
