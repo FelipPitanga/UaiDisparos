@@ -8,6 +8,7 @@ export default async function Page() {
   const { data } = await supabase
     .from("campaigns")
     .select("id,name,status,text_content,media_url,media_type,footer_text,buttons,created_at,updated_at")
+    .neq("status", "archived")
     .order("created_at", { ascending: false });
 
   return <CampaignsManager initialCampaigns={(data ?? []) as any} />;
