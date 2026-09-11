@@ -1,14 +1,63 @@
-const groups = [
-  ["Comunidade Lançamento 01","120363000001@g.us","842","Ativo"],
-  ["Oferta 02","120363000002@g.us","396","Ativo"],
-  ["VIP Setembro","120363000003@g.us","211","Pausado"],
-];
-export default function Page(){
-  return <>
-    <div className="topbar"><div><h1>Grupos</h1><div className="subtitle">Escolha quais grupos serão monitorados.</div></div><div className="toolbar"><button className="btn secondary">Sincronizar</button></div></div>
-    <div className="table-wrap"><table>
-      <thead><tr><th></th><th>Grupo</th><th>ID</th><th>Participantes</th><th>Monitoramento</th></tr></thead>
-      <tbody>{groups.map((g,i)=><tr key={g[1]}><td><input type="checkbox" defaultChecked={i<2}/></td><td>{g[0]}</td><td>{g[1]}</td><td>{g[2]}</td><td><span className={"badge "+(i<2?"ok":"warn")}>{g[3]}</span></td></tr>)}</tbody>
-    </table></div>
-  </>
+import { getSupabaseAdmin } from "@/lib/supabase/server";
+import SyncButton from "./SyncButton";
+
+export const dynamic = "force-dynamic";
+
+export default async function Page() {
+  const supabase = getSupabaseAdmin();
+  const { data: groups, error } = await supabase
+    .from("groups")
+    .select("id,name,external_id,member_count,monitoring_enabled,updated_at")
+    .order("name", { ascending: true });
+
+  return (
+    <>
+      <div className="topbar">
+        <div>
+          <h1>Grupos</h1>
+          <div className="subtitle">Grupos sincronizados da UAZAPI.</div>
+        </div>
+        <SyncButton />
+      </div>
+
+      {error ? (
+        <div className="card">
+          <div className="label">Erro ao carregar grupos</div>
+          <div className="subtitle">{error.message}</div>
+        </div>
+      ) : null}
+
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Grupo</th>
+              <th>ID</th>
+              <th>Participantes</th>
+              <th>Monitoramento</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(groups ?? []).map((group) => (
+              <tr key={group.id}>
+                <td>{group.name || "Sem nome"}</td>
+                <td>{group.external_id}</td>
+                <td>{group.member_count ?? "—"}</td>
+                <td>
+                  <span className={`badge ${group.monitoring_enabled ? "ok" : "warn"}`}>
+                    {group.monitoring_enabled ? "Ativo" : "Pausado"}
+                  </span>
+                </td>
+              </tr>
+            ))}
+            {!groups?.length ? (
+              <tr>
+                <td colSpan={4}>Nenhum grupo sincronizado ainda.</td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
 }
