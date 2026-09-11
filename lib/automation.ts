@@ -58,23 +58,48 @@ async function selectSenderForAutomation(supabase: any, automation: any, preferr
 
   const [{ data: senders }, { data: todayJobs }] = await Promise.all([
     supabase.from("instances").select("id,name,status,instance_role,base_url,api_token").in("id", senderIds),
-    supabase.from("jobs").select("instance_id,status").in("instance_id", senderIds).in("status", ["sent", "processing"]).gte("created_at", saoPauloDayStartIso()),
+    supabase.from("jobs").select("instance_id,status,processed_at,updated_at").in("instance_id", senderIds).in("status", ["sent", "processing"]).gte("created_at", saoPauloDayStartIso()),
   ]);
 
   const counts = new Map<string, number>();
-  for (const job of todayJobs || []) counts.set(job.instance_id, (counts.get(job.instance_id) || 0) + 1);
-  const limit = Number(automation.daily_limit_per_sender || 40);
-  const byId = new Map((senders || []).map((sender: any) => [sender.id, sender]));
+  const lastActivity = new Map<string, number>();
+  for (const job of todayJobs || []) {
+    counts.set(job.instance_id, (counts.get(job.instance_id) || 0) + 1);
+    const raw = job.processed_at || job.updated_at;
+    const ts = raw ? Date.parse(raw) : NaN;
+    if (Number.isFinite(ts)) lastActivity.set(job.instance_id, Math.max(lastActivity.get(job.instance_id) || 0, ts));
+  }
 
+  const limit = Number(automation.daily_limit_per_sender || 40);
+  const intervalMs = Math.max(0, Number(automation.send_interval_seconds ?? 30)) * 1000;
+  const nowMs = Date.now();
+  const byId = new Map((senders || []).map((sender: any) => [sender.id, sender]));
   const ordered = preferredId && senderIds.includes(preferredId)
     ? [preferredId, ...senderIds.filter((id) => id !== preferredId)]
     : senderIds;
+
+  let nextAvailableAt: number | null = null;
+  let hasConnectedUnderLimit = false;
 
   for (const id of ordered) {
     const sender: any = byId.get(id);
     if (!sender || sender.instance_role !== "sender") continue;
     if ((counts.get(id) || 0) >= limit) continue;
-    if (sender.status === "connected" && sender.base_url && sender.api_token) return { sender, usedToday: counts.get(id) || 0, limit };
+    if (sender.status !== "connected" || !sender.base_url || !sender.api_token) continue;
+
+    hasConnectedUnderLimit = true;
+    const last = lastActivity.get(id) || 0;
+    const availableAt = last + intervalMs;
+    if (intervalMs > 0 && last > 0 && availableAt > nowMs) {
+      nextAvailableAt = nextAvailableAt === null ? availableAt : Math.min(nextAvailableAt, availableAt);
+      continue;
+    }
+
+    return { sender, usedToday: counts.get(id) || 0, limit };
+  }
+
+  if (hasConnectedUnderLimit && nextAvailableAt) {
+    return { sender: null, reason: "cooldown", nextAvailableAt: new Date(nextAvailableAt).toISOString(), limit };
   }
 
   const availableUnderLimit = ordered.find((id) => (counts.get(id) || 0) < limit && byId.get(id));
@@ -98,7 +123,7 @@ export async function processJob(jobId: string) {
     supabase.from("leads").select("id,phone,lid,name,consent_status").eq("id", job.lead_id).single(),
     supabase.from("groups").select("id,name,external_id").eq("id", job.group_id).single(),
     supabase.from("campaigns").select("id,name,text_content,media_url,media_type,buttons,footer_text").eq("id", job.campaign_id).single(),
-    supabase.from("group_automations").select("id,active,authorization_confirmed,sender_instance_id,sender_instance_ids,daily_limit_per_sender").eq("id", job.automation_id).single(),
+    supabase.from("group_automations").select("id,active,authorization_confirmed,sender_instance_id,sender_instance_ids,daily_limit_per_sender,send_interval_seconds").eq("id", job.automation_id).single(),
   ]);
 
   if (!lead || !group || !campaign || !automation) {
@@ -113,8 +138,18 @@ export async function processJob(jobId: string) {
 
   const senderChoice = await selectSenderForAutomation(supabase, automation, job.instance_id);
   if (!senderChoice.sender) {
-    const detail = senderChoice.reason === "daily_limit_reached" ? "Limite diário das contas atingido — aguardando próximo período" : "Nenhum disparador disponível";
-    await supabase.from("jobs").update({ status: "queued", error_message: detail, processed_at: null, updated_at: new Date().toISOString() }).eq("id", job.id);
+    let detail = "Nenhum disparador disponível";
+    const updates: Record<string, any> = { status: "queued", processed_at: null, updated_at: new Date().toISOString() };
+
+    if (senderChoice.reason === "daily_limit_reached") {
+      detail = "Limite diário das contas atingido — aguardando próximo período";
+    } else if (senderChoice.reason === "cooldown") {
+      detail = `Aguardando intervalo entre envios (${Number(automation.send_interval_seconds ?? 30)}s)`;
+      if (senderChoice.nextAvailableAt) updates.scheduled_at = senderChoice.nextAvailableAt;
+    }
+
+    updates.error_message = detail;
+    await supabase.from("jobs").update(updates).eq("id", job.id);
     return { ok: false, queued: true, error: detail };
   }
 
@@ -143,7 +178,7 @@ export async function processJob(jobId: string) {
   const text = renderCampaignText(campaign.text_content, lead, group);
   const provider = new UazapiProvider({ baseUrl: sender.base_url, token: sender.api_token });
   const buttons = normalizeButtons(campaign.buttons);
-  await supabase.from("jobs").update({ status: "processing", attempts: Number(job.attempts || 0) + 1, error_message: null, updated_at: new Date().toISOString() }).eq("id", job.id);
+  await supabase.from("jobs").update({ status: "processing", attempts: Number(job.attempts || 0) + 1, error_message: null, scheduled_at: null, updated_at: new Date().toISOString() }).eq("id", job.id);
 
   try {
     const ids: string[] = [];
@@ -195,7 +230,7 @@ export async function enqueueForAutomation(params: { leadId: string; groupId: st
   const supabase = getSupabaseAdmin();
   const { data: automation } = await supabase
     .from("group_automations")
-    .select("id,campaign_id,sender_instance_id,campaign_ids,sender_instance_ids,delay_seconds,daily_limit_per_sender,active,authorization_confirmed")
+    .select("id,campaign_id,sender_instance_id,campaign_ids,sender_instance_ids,delay_seconds,send_interval_seconds,daily_limit_per_sender,active,authorization_confirmed")
     .eq("group_id", params.groupId)
     .eq("active", true)
     .maybeSingle();
@@ -241,7 +276,7 @@ export async function enqueueForAutomation(params: { leadId: string; groupId: st
     throw error;
   }
 
-  if (Number(automation.delay_seconds || 0) > 0) return { queued: true, jobId: created.id, scheduledAt };
-  const processed = await processJob(created.id);
-  return { queued: true, jobId: created.id, processed };
+  // O webhook apenas enfileira. O processador em nuvem escoa a fila em série,
+  // respeitando atraso, intervalo por conta, limite diário e disponibilidade.
+  return { queued: true, jobId: created.id, scheduledAt };
 }
