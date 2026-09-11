@@ -9,6 +9,9 @@ create table if not exists public.instances (
   status text not null default 'disconnected' check (status in ('disconnected','connecting','connected','hibernated','error')),
   base_url text,
   webhook_enabled boolean not null default false,
+  instance_role text not null default 'sender' check (instance_role in ('monitor','sender','both')),
+  api_token text,
+  system_name text,
   last_seen_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
