@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { UazapiProvider } from "@/lib/providers/uazapi";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
@@ -42,8 +43,6 @@ export async function POST() {
     const externalId = "uazapi-env-default";
     const now = new Date().toISOString();
 
-    // instances.external_id possui índice UNIQUE parcial. O PostgREST não consegue
-    // inferi-lo via ON CONFLICT, então fazemos select + update/insert explicitamente.
     const { data: existingInstance, error: lookupError } = await supabase
       .from("instances")
       .select("id")
@@ -121,6 +120,9 @@ export async function POST() {
     if (groupsError) {
       throw new Error(`Falha ao salvar grupos: ${groupsError.message}`);
     }
+
+    revalidatePath("/grupos");
+    revalidatePath("/");
 
     return NextResponse.json({ ok: true, synced: rows.length });
   } catch (error) {
