@@ -7,9 +7,10 @@ function cleanButtons(value: any) {
   if (!Array.isArray(value)) return [];
   return value.slice(0, 3).map((item, index) => {
     const id = String(item?.id || `btn_${index + 1}`).trim().slice(0, 50);
-    const label = String(item?.label || "").trim().slice(0, 30);
     const type = ["reply", "url", "call", "copy"].includes(String(item?.type)) ? String(item.type) : "reply";
+    const rawLabel = String(item?.label || "").trim().slice(0, 30);
     const rawValue = String(item?.value || "").trim().slice(0, 250);
+    const label = rawLabel || rawValue.slice(0, 30);
     const value = type === "reply" ? (rawValue || id) : rawValue;
     return { id, label, value, type };
   }).filter((item) => item.label && item.value);
