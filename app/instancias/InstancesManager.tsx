@@ -50,6 +50,8 @@ export default function InstancesManager({ initialInstances }: Props) {
   const [connectId, setConnectId] = useState<string | null>(null);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [pairCode, setPairCode] = useState<string | null>(null);
+  const [phoneForCode, setPhoneForCode] = useState("");
+  const [connectMode, setConnectMode] = useState<"qr" | "code">("qr");
   const [connectionStatus, setConnectionStatus] = useState<string>("disconnected");
 
   const selected = useMemo(
@@ -67,7 +69,7 @@ export default function InstancesManager({ initialInstances }: Props) {
         if (!data?.ok) return;
 
         setConnectionStatus(data.status);
-        if (data.qrcode) setQrCode(data.qrcode);
+        if (connectMode === "qr" && data.qrcode) setQrCode(data.qrcode);
         setInstances((current) =>
           current.map((item) =>
             item.id === connectId
@@ -87,7 +89,7 @@ export default function InstancesManager({ initialInstances }: Props) {
     }, 3000);
 
     return () => window.clearInterval(timer);
-  }, [connectId, connectionStatus, router]);
+  }, [connectId, connectionStatus, router, connectMode]);
 
   async function createInstance() {
     if (!name.trim()) {
@@ -120,7 +122,9 @@ export default function InstancesManager({ initialInstances }: Props) {
       setRole("sender");
       setConnectId(created.id);
       setConnectionStatus(created.status);
-      await generateQr(created.id);
+      setConnectMode("qr");
+      setPhoneForCode("");
+      await connectInstance(created.id, "qr");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao criar instância.");
@@ -129,17 +133,28 @@ export default function InstancesManager({ initialInstances }: Props) {
     }
   }
 
-  async function generateQr(id: string) {
+  async function connectInstance(id: string, mode: "qr" | "code") {
+    const phone = phoneForCode.replace(/\D/g, "");
+    if (mode === "code" && phone.length < 10) {
+      setError("Informe o número com DDI + DDD. Ex.: 5562999999999.");
+      return;
+    }
+
     setConnectId(id);
+    setConnectMode(mode);
     setQrCode(null);
     setPairCode(null);
     setConnectionStatus("connecting");
     setError("");
 
     try {
-      const response = await fetch(`/api/uazapi/instances/${id}/connect`, { method: "POST" });
+      const response = await fetch(`/api/uazapi/instances/${id}/connect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(mode === "code" ? { phone } : {}),
+      });
       const data = await response.json();
-      if (!response.ok || !data?.ok) throw new Error(data?.error || "Não foi possível gerar o QR Code.");
+      if (!response.ok || !data?.ok) throw new Error(data?.error || "Não foi possível iniciar a conexão.");
 
       setQrCode(data.qrcode ?? null);
       setPairCode(data.pairCode ?? null);
@@ -149,7 +164,7 @@ export default function InstancesManager({ initialInstances }: Props) {
       );
     } catch (err) {
       setConnectionStatus("error");
-      setError(err instanceof Error ? err.message : "Erro ao gerar QR Code.");
+      setError(err instanceof Error ? err.message : "Erro ao iniciar conexão.");
     }
   }
 
@@ -177,6 +192,16 @@ export default function InstancesManager({ initialInstances }: Props) {
     }
   }
 
+  function openConnect(instance: InstanceRow) {
+    setConnectId(instance.id);
+    setConnectMode("qr");
+    setPhoneForCode("");
+    setQrCode(null);
+    setPairCode(null);
+    setConnectionStatus(instance.status);
+    setError("");
+  }
+
   return (
     <>
       <div className="topbar">
@@ -200,7 +225,7 @@ export default function InstancesManager({ initialInstances }: Props) {
         {instances.length === 0 ? (
           <div className="card empty-state">
             <div className="section-title">Nenhuma instância criada</div>
-            <div className="muted">Crie a primeira instância e conecte o WhatsApp pelo QR Code.</div>
+            <div className="muted">Crie a primeira instância e conecte o WhatsApp.</div>
           </div>
         ) : instances.map((instance) => (
           <div className="card instance-card" key={instance.id}>
@@ -218,10 +243,10 @@ export default function InstancesManager({ initialInstances }: Props) {
             <div className="instance-actions-row">
               <button
                 className="btn instance-action"
-                onClick={() => generateQr(instance.id)}
+                onClick={() => openConnect(instance)}
                 disabled={instance.status === "connected" || deletingId === instance.id}
               >
-                {instance.status === "connected" ? "WhatsApp conectado" : "Gerar QR Code"}
+                {instance.status === "connected" ? "WhatsApp conectado" : "Conectar WhatsApp"}
               </button>
               <button
                 className="btn danger-btn"
@@ -273,7 +298,7 @@ export default function InstancesManager({ initialInstances }: Props) {
             <div className="row modal-title-row">
               <div>
                 <div className="section-title">Conectar {selected?.name ?? "instância"}</div>
-                <div className="muted">WhatsApp → Aparelhos conectados → Conectar um aparelho.</div>
+                <div className="muted">Escolha QR Code ou código de pareamento.</div>
               </div>
               <button className="modal-close" onClick={() => setConnectId(null)}>×</button>
             </div>
@@ -284,25 +309,46 @@ export default function InstancesManager({ initialInstances }: Props) {
                 <div className="section-title">Conectado com sucesso</div>
                 <div className="muted">A instância já está pronta para uso no UaiDisparos.</div>
               </div>
-            ) : qrCode ? (
-              <div className="qr-content">
-                <div className="qr-frame"><img src={qrCode} alt="QR Code do WhatsApp" /></div>
-                <div className="muted">O status atualiza automaticamente após a leitura.</div>
-              </div>
-            ) : pairCode ? (
-              <div className="qr-content">
-                <div className="pair-code">{pairCode}</div>
-                <div className="muted">Use este código no WhatsApp para vincular o aparelho.</div>
-              </div>
             ) : (
-              <div className="qr-content">
-                <div className="qr-loading">Gerando QR Code...</div>
-              </div>
-            )}
+              <>
+                <div className="connect-methods">
+                  <button className={`btn ${connectMode === "qr" ? "" : "secondary"}`} onClick={() => { setConnectMode("qr"); setQrCode(null); setPairCode(null); }}>QR Code</button>
+                  <button className={`btn ${connectMode === "code" ? "" : "secondary"}`} onClick={() => { setConnectMode("code"); setQrCode(null); setPairCode(null); }}>Código</button>
+                </div>
 
-            {connectionStatus !== "connected" ? (
-              <button className="btn secondary full-btn" onClick={() => connectId && generateQr(connectId)}>Gerar novo QR</button>
-            ) : null}
+                {connectMode === "code" ? (
+                  <div className="field modal-field-gap">
+                    <label>Número do WhatsApp</label>
+                    <input
+                      className="input"
+                      value={phoneForCode}
+                      onChange={(e) => setPhoneForCode(e.target.value)}
+                      placeholder="5562999999999"
+                      inputMode="numeric"
+                    />
+                    <div className="muted code-help">Use DDI + DDD + número, somente números.</div>
+                  </div>
+                ) : null}
+
+                {qrCode ? (
+                  <div className="qr-content">
+                    <div className="qr-frame"><img src={qrCode} alt="QR Code do WhatsApp" /></div>
+                    <div className="muted">WhatsApp → Aparelhos conectados → Conectar um aparelho.</div>
+                  </div>
+                ) : pairCode ? (
+                  <div className="qr-content">
+                    <div className="pair-code">{pairCode}</div>
+                    <div className="muted">No WhatsApp, escolha conectar com número de telefone e digite este código.</div>
+                  </div>
+                ) : null}
+
+                {error ? <div className="alert-error compact">{error}</div> : null}
+
+                <button className="btn full-btn modal-field-gap" onClick={() => connectId && connectInstance(connectId, connectMode)}>
+                  {connectMode === "code" ? "Gerar código de pareamento" : "Gerar QR Code"}
+                </button>
+              </>
+            )}
           </div>
         </div>
       ) : null}
