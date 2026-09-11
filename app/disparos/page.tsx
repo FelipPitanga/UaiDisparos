@@ -10,8 +10,8 @@ export default async function DisparosPage() {
     supabase.from("campaigns").select("id,name,text_content").eq("status", "active").order("created_at", { ascending: false }),
     supabase.from("instances").select("id,name,status,phone").eq("instance_role", "sender").order("created_at", { ascending: true }),
     supabase.from("groups").select("id,name,external_id,monitoring_enabled").order("name", { ascending: true }),
-    supabase.from("group_automations").select("id,group_id,campaign_id,sender_instance_id,active,authorization_confirmed").order("created_at", { ascending: false }),
-    supabase.from("jobs").select("id,recipient,status,error_message,created_at,processed_at,campaign_id,group_id,instance_id").order("created_at", { ascending: false }).limit(100),
+    supabase.from("group_automations").select("id,group_id,campaign_id,sender_instance_id,campaign_ids,sender_instance_ids,delay_seconds,daily_limit_per_sender,active,authorization_confirmed").order("created_at", { ascending: false }),
+    supabase.from("jobs").select("id,recipient,status,error_message,created_at,scheduled_at,processed_at,campaign_id,group_id,instance_id").order("created_at", { ascending: false }).limit(100),
   ]);
 
   const campaigns = campaignsResult.data ?? [];
