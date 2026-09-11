@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+type InstanceRole = "monitor" | "sender";
+
 type InstanceRow = {
   id: string;
   name: string;
   status: string;
-  instance_role: "monitor" | "sender" | "both";
+  instance_role: InstanceRole;
   phone: string | null;
   last_seen_at: string | null;
   created_at: string;
@@ -15,10 +17,8 @@ type InstanceRow = {
 
 type Props = { initialInstances: InstanceRow[] };
 
-function roleLabel(role: InstanceRow["instance_role"]) {
-  if (role === "monitor") return "Monitorador";
-  if (role === "both") return "Monitorador + Disparador";
-  return "Disparador";
+function roleLabel(role: InstanceRole) {
+  return role === "monitor" ? "Monitorador" : "Disparador";
 }
 
 function statusLabel(status: string) {
@@ -41,7 +41,7 @@ export default function InstancesManager({ initialInstances }: Props) {
   const [instances, setInstances] = useState(initialInstances);
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState("");
-  const [role, setRole] = useState<InstanceRow["instance_role"]>("sender");
+  const [role, setRole] = useState<InstanceRole>("sender");
   const [busy, setBusy] = useState(false);
   const [connectBusy, setConnectBusy] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -57,6 +57,9 @@ export default function InstancesManager({ initialInstances }: Props) {
     () => instances.find((instance) => instance.id === connectId) ?? null,
     [instances, connectId],
   );
+
+  const monitors = useMemo(() => instances.filter((x) => x.instance_role === "monitor"), [instances]);
+  const senders = useMemo(() => instances.filter((x) => x.instance_role === "sender"), [instances]);
 
   useEffect(() => {
     if (!connectId || connectionStatus !== "connecting") return;
@@ -199,50 +202,83 @@ export default function InstancesManager({ initialInstances }: Props) {
     setError("");
   }
 
+  function renderCards(items: InstanceRow[], emptyMessage: string) {
+    if (!items.length) {
+      return <div className="card empty-state"><div className="muted">{emptyMessage}</div></div>;
+    }
+
+    return items.map((instance) => (
+      <div className="card instance-card" key={instance.id}>
+        <div className="row">
+          <div>
+            <div className="instance-name">{instance.name}</div>
+            <div className="muted instance-phone">{instance.phone ? `+${instance.phone}` : "Sem número conectado"}</div>
+          </div>
+          <span className={`badge ${statusClass(instance.status)}`}>{statusLabel(instance.status)}</span>
+        </div>
+        <div className="instance-meta">
+          <span className="badge">{roleLabel(instance.instance_role)}</span>
+          <span className="badge">UAZAPI</span>
+        </div>
+        <div className="instance-actions-row">
+          <button className="btn instance-action" onClick={() => openConnect(instance)} disabled={instance.status === "connected" || deletingId === instance.id}>
+            {instance.status === "connected" ? "WhatsApp conectado" : "Conectar WhatsApp"}
+          </button>
+          <button className="btn danger-btn" onClick={() => deleteInstance(instance)} disabled={deletingId === instance.id} title="Excluir instância">
+            {deletingId === instance.id ? "Excluindo..." : "Excluir"}
+          </button>
+        </div>
+      </div>
+    ));
+  }
+
   return (
     <>
       <div className="topbar">
-        <div><h1>Instâncias</h1><div className="subtitle">Crie, conecte e organize os números da operação.</div></div>
+        <div>
+          <h1>Instâncias</h1>
+          <div className="subtitle">Monitoradores observam grupos. Disparadores ficam reservados somente para a fila de envio.</div>
+        </div>
         <button className="btn" onClick={() => { setError(""); setShowCreate(true); }}>+ Nova instância</button>
       </div>
 
       <div className="instance-summary-grid">
         <div className="card"><div className="label">Total</div><div className="metric">{instances.length}</div></div>
-        <div className="card"><div className="label">Conectadas</div><div className="metric">{instances.filter((x) => x.status === "connected").length}</div></div>
-        <div className="card"><div className="label">Monitoradores</div><div className="metric">{instances.filter((x) => x.instance_role === "monitor" || x.instance_role === "both").length}</div></div>
-        <div className="card"><div className="label">Disparadores</div><div className="metric">{instances.filter((x) => x.instance_role === "sender" || x.instance_role === "both").length}</div></div>
+        <div className="card"><div className="label">Online</div><div className="metric">{instances.filter((x) => x.status === "connected").length}</div></div>
+        <div className="card"><div className="label">Monitoradores</div><div className="metric">{monitors.filter((x) => x.status === "connected").length}/{monitors.length}</div><div className="muted">online / total</div></div>
+        <div className="card"><div className="label">Disparadores</div><div className="metric">{senders.filter((x) => x.status === "connected").length}/{senders.length}</div><div className="muted">online / total</div></div>
       </div>
 
       {error ? <div className="alert-error">{error}</div> : null}
 
-      <div className="section instance-cards">
-        {instances.length === 0 ? (
-          <div className="card empty-state"><div className="section-title">Nenhuma instância criada</div><div className="muted">Crie a primeira instância e conecte o WhatsApp.</div></div>
-        ) : instances.map((instance) => (
-          <div className="card instance-card" key={instance.id}>
-            <div className="row">
-              <div><div className="instance-name">{instance.name}</div><div className="muted instance-phone">{instance.phone ? `+${instance.phone}` : "Sem número conectado"}</div></div>
-              <span className={`badge ${statusClass(instance.status)}`}>{statusLabel(instance.status)}</span>
-            </div>
-            <div className="instance-meta"><span className="badge">{roleLabel(instance.instance_role)}</span><span className="badge">UAZAPI</span></div>
-            <div className="instance-actions-row">
-              <button className="btn instance-action" onClick={() => openConnect(instance)} disabled={instance.status === "connected" || deletingId === instance.id}>
-                {instance.status === "connected" ? "WhatsApp conectado" : "Conectar WhatsApp"}
-              </button>
-              <button className="btn danger-btn" onClick={() => deleteInstance(instance)} disabled={deletingId === instance.id} title="Excluir instância">
-                {deletingId === instance.id ? "Excluindo..." : "Excluir"}
-              </button>
-            </div>
-          </div>
-        ))}
+      <div className="section">
+        <div className="section-title">Monitoradores</div>
+        <div className="subtitle" style={{ marginBottom: 12 }}>Só capturam entradas e saídas dos grupos monitorados. Não entram no pool de disparo.</div>
+        <div className="instance-cards">{renderCards(monitors, "Nenhum monitorador criado ainda.")}</div>
+      </div>
+
+      <div className="section">
+        <div className="section-title">Disparadores</div>
+        <div className="subtitle" style={{ marginBottom: 12 }}>Ficam disponíveis exclusivamente para a fila de envio. Não são usados para monitorar grupos.</div>
+        <div className="instance-cards">{renderCards(senders, "Nenhum disparador criado ainda.")}</div>
       </div>
 
       {showCreate ? (
         <div className="modal-backdrop" onMouseDown={() => !busy && setShowCreate(false)}>
           <div className="modal-card" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="row modal-title-row"><div><div className="section-title">Nova instância</div><div className="muted">A instância será criada direto no seu servidor UAZAPI.</div></div><button className="modal-close" onClick={() => setShowCreate(false)} disabled={busy}>×</button></div>
-            <div className="field"><label>Nome</label><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Monitor X" autoFocus /></div>
-            <div className="field modal-field-gap"><label>Função</label><select className="select" value={role} onChange={(e) => setRole(e.target.value as InstanceRow["instance_role"])}><option value="monitor">Monitorador</option><option value="sender">Disparador</option><option value="both">Monitorador + Disparador</option></select></div>
+            <div className="row modal-title-row">
+              <div><div className="section-title">Nova instância</div><div className="muted">Escolha uma função única. A instância será criada direto no seu servidor UAZAPI.</div></div>
+              <button className="modal-close" onClick={() => setShowCreate(false)} disabled={busy}>×</button>
+            </div>
+            <div className="field"><label>Nome</label><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={role === "monitor" ? "Ex.: Monitor X" : "Ex.: Disparador 1"} autoFocus /></div>
+            <div className="field modal-field-gap">
+              <label>Função</label>
+              <select className="select" value={role} onChange={(e) => setRole(e.target.value as InstanceRole)}>
+                <option value="monitor">Monitorador</option>
+                <option value="sender">Disparador</option>
+              </select>
+              <div className="muted code-help">Monitorador observa grupos. Disparador só participa da fila de envio.</div>
+            </div>
             {error ? <div className="alert-error compact">{error}</div> : null}
             <div className="modal-actions"><button className="btn secondary" onClick={() => setShowCreate(false)} disabled={busy}>Cancelar</button><button className="btn" onClick={createInstance} disabled={busy}>{busy ? "Criando..." : "Criar instância"}</button></div>
           </div>
