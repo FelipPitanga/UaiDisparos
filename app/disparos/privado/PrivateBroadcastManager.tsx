@@ -108,6 +108,10 @@ export default function PrivateBroadcastManager({ campaigns, senders, groups, au
     setInvalidCount((current) => current + invalid);
   }
 
+  function removeImportedNumber(phone: string) {
+    setImportedNumbers((current) => current.filter((item) => item !== phone));
+  }
+
   async function onTxt(file?: File | null) {
     if (!file) return;
     const text = await file.text();
@@ -219,6 +223,22 @@ export default function PrivateBroadcastManager({ campaigns, senders, groups, au
             <div className="row" style={{ marginTop: 8 }}>
               <div className="muted">Válidos carregados: {importedNumbers.length}{invalidCount ? ` • inválidos ignorados: ${invalidCount}` : ""}</div>
               <button type="button" className="btn secondary" onClick={usePastedText} disabled={!pastedText.trim()}>Adicionar números colados</button>
+            </div>
+
+            <div className="card" style={{ marginTop: 10, padding: 10 }}>
+              <div className="row" style={{ marginBottom: importedNumbers.length ? 8 : 0 }}>
+                <div className="label">Números adicionados</div>
+                {importedNumbers.length ? <button type="button" className="btn secondary" style={{ padding: "6px 10px" }} onClick={() => setImportedNumbers([])}>Limpar lista</button> : null}
+              </div>
+              <div style={{ maxHeight: 180, overflowY: "auto", display: "grid", gap: 6, paddingRight: 4 }}>
+                {importedNumbers.map((phone, index) => (
+                  <div key={phone} className="row" style={{ justifyContent: "space-between", padding: "7px 9px", border: "1px solid var(--border)", borderRadius: 8 }}>
+                    <span style={{ fontFamily: "monospace" }}>{index + 1}. +{phone}</span>
+                    <button type="button" className="btn secondary" style={{ padding: "4px 8px" }} onClick={() => removeImportedNumber(phone)}>×</button>
+                  </div>
+                ))}
+                {!importedNumbers.length ? <div className="muted">Os números válidos do arquivo ou do texto colado vão aparecer aqui.</div> : null}
+              </div>
             </div>
           </div>
 
