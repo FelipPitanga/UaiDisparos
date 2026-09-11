@@ -2,15 +2,26 @@ import Link from "next/link";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import SyncButton from "./SyncButton";
 import MonitorToggle from "./MonitorToggle";
+import WebhookStatus from "./WebhookStatus";
 
 export const dynamic = "force-dynamic";
+
+function webhookInfo(payload: any) {
+  const root = Array.isArray(payload) ? payload[0] : payload;
+  const data = root?.webhook ?? root?.data?.webhook ?? root?.data ?? root ?? {};
+  return {
+    enabled: Boolean(data?.enabled ?? root?.enabled),
+    url: typeof (data?.url ?? root?.url) === "string" ? (data?.url ?? root?.url) : null,
+    events: Array.isArray(data?.events ?? root?.events) ? (data?.events ?? root?.events) : [],
+  };
+}
 
 export default async function Page({ searchParams }: { searchParams?: { instance?: string } }) {
   const supabase = getSupabaseAdmin();
 
   const { data: monitors } = await supabase
     .from("instances")
-    .select("id,name,status,instance_role,phone,webhook_enabled")
+    .select("id,name,status,instance_role,phone,webhook_enabled,base_url,api_token")
     .in("instance_role", ["monitor", "both"])
     .order("created_at", { ascending: true });
 
@@ -27,6 +38,39 @@ export default async function Page({ searchParams }: { searchParams?: { instance
     : { data: [], error: null };
 
   const monitoredCount = (groups ?? []).filter((g) => g.monitoring_enabled).length;
+
+  let providerWebhook = { enabled: false, url: null as string | null, events: [] as string[] };
+  let providerWebhookError: string | null = null;
+
+  if (selectedMonitor?.base_url && selectedMonitor?.api_token) {
+    try {
+      const response = await fetch(`${String(selectedMonitor.base_url).replace(/\/$/, "")}/webhook`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          token: selectedMonitor.api_token,
+        },
+        cache: "no-store",
+      });
+      const text = await response.text();
+      let payload: any = null;
+      try { payload = text ? JSON.parse(text) : null; } catch { payload = text; }
+      if (!response.ok) throw new Error(`UAZAPI ${response.status}`);
+      providerWebhook = webhookInfo(payload);
+    } catch (err) {
+      providerWebhookError = err instanceof Error ? err.message : "Falha ao consultar webhook";
+    }
+  }
+
+  const { data: lastEvent } = selectedId
+    ? await supabase
+        .from("webhook_events")
+        .select("id,event_type,group_external_id,participant_external_id,phone,lid,processed,processing_error,received_at")
+        .eq("instance_id", selectedId)
+        .order("received_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null };
 
   return (
     <>
@@ -75,6 +119,19 @@ export default async function Page({ searchParams }: { searchParams?: { instance
           </div>
         ) : null}
       </div>
+
+      {selectedMonitor ? (
+        <WebhookStatus
+          monitorName={selectedMonitor.name}
+          dbEnabled={Boolean(selectedMonitor.webhook_enabled)}
+          providerEnabled={providerWebhook.enabled}
+          providerUrl={providerWebhook.url}
+          providerEvents={providerWebhook.events}
+          providerError={providerWebhookError}
+          expectedUrl={process.env.UAZAPI_WEBHOOK_URL ?? null}
+          lastEvent={lastEvent ?? null}
+        />
+      ) : null}
 
       {error ? (
         <div className="card">
