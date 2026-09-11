@@ -62,6 +62,30 @@ export default async function Page({ searchParams }: { searchParams?: { instance
     }
   }
 
+  const expectedUrl = process.env.UAZAPI_WEBHOOK_URL?.trim() || null;
+  let endpointReachable = false;
+  let endpointError: string | null = null;
+
+  if (expectedUrl) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const response = await fetch(expectedUrl, {
+        method: "GET",
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      const body = await response.json().catch(() => null);
+      endpointReachable = response.ok && body?.ok === true && body?.service === "uaidisparos-uazapi-webhook";
+      if (!endpointReachable) endpointError = `resposta inesperada (${response.status})`;
+    } catch (err) {
+      endpointError = err instanceof Error ? err.message : "não foi possível acessar o endpoint";
+    }
+  } else {
+    endpointError = "UAZAPI_WEBHOOK_URL não configurada";
+  }
+
   const { data: lastEvent } = selectedId
     ? await supabase
         .from("webhook_events")
@@ -128,7 +152,9 @@ export default async function Page({ searchParams }: { searchParams?: { instance
           providerUrl={providerWebhook.url}
           providerEvents={providerWebhook.events}
           providerError={providerWebhookError}
-          expectedUrl={process.env.UAZAPI_WEBHOOK_URL ?? null}
+          expectedUrl={expectedUrl}
+          endpointReachable={endpointReachable}
+          endpointError={endpointError}
           lastEvent={lastEvent ?? null}
         />
       ) : null}
