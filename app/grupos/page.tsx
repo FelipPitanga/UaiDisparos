@@ -22,7 +22,7 @@ export default async function Page({ searchParams }: { searchParams?: { instance
   const { data: monitors } = await supabase
     .from("instances")
     .select("id,name,status,instance_role,phone,webhook_enabled,base_url,api_token")
-    .in("instance_role", ["monitor", "both"])
+    .eq("instance_role", "monitor")
     .order("created_at", { ascending: true });
 
   const selectedId = searchParams?.instance || monitors?.[0]?.id || "";
