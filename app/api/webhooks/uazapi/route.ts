@@ -4,6 +4,14 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
+function sanitizePayload(payload: any) {
+  if (!payload || typeof payload !== "object") return payload;
+  const copy = { ...payload };
+  if ("token" in copy) copy.token = "[redacted]";
+  if ("apikey" in copy) copy.apikey = "[redacted]";
+  return copy;
+}
+
 export async function POST(req: NextRequest) {
   const payload = await req.json().catch(() => null);
   if (!payload) return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400 });
@@ -14,25 +22,48 @@ export async function POST(req: NextRequest) {
     if (provided !== secret) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const provider = new UazapiProvider({
-    baseUrl: process.env.UAZAPI_BASE_URL ?? "",
-    token: process.env.UAZAPI_TOKEN ?? "",
-  });
-
+  const provider = new UazapiProvider({ baseUrl: "", token: "" });
   const normalized = provider.normalizeWebhook(payload);
   const supabase = getSupabaseAdmin();
+  const payloadToken = typeof payload?.token === "string" ? payload.token : null;
+  const instanceName = typeof payload?.instanceName === "string" ? payload.instanceName : null;
 
   try {
+    let instance: any = null;
+
+    if (payloadToken) {
+      const { data, error } = await supabase
+        .from("instances")
+        .select("id,name,instance_role")
+        .eq("api_token", payloadToken)
+        .maybeSingle();
+      if (error) throw error;
+      instance = data;
+    }
+
+    if (!instance && instanceName) {
+      const { data, error } = await supabase
+        .from("instances")
+        .select("id,name,instance_role")
+        .eq("name", instanceName)
+        .maybeSingle();
+      if (error) throw error;
+      instance = data;
+    }
+
+    const safePayload = sanitizePayload(payload);
+
     const { data: evt, error: evtErr } = await supabase
       .from("webhook_events")
       .insert({
+        instance_id: instance?.id ?? null,
         provider: "uazapi",
         event_type: normalized.type,
         group_external_id: normalized.groupId ?? null,
         participant_external_id: normalized.participantId ?? null,
         phone: normalized.phone,
         lid: normalized.lid,
-        payload,
+        payload: safePayload,
         processed: false,
       })
       .select("id")
@@ -49,10 +80,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ignored: true, reason: "not_participant_join", normalized });
     }
 
+    if (!instance?.id) {
+      await supabase
+        .from("webhook_events")
+        .update({ processed: true, processing_error: "instance_not_identified", processed_at: new Date().toISOString() })
+        .eq("id", evt.id);
+      return NextResponse.json({ ok: true, ignored: true, reason: "instance_not_identified", normalized });
+    }
+
     const { data: group, error: groupError } = normalized.groupId
       ? await supabase
           .from("groups")
           .select("id,instance_id,name,external_id,monitoring_enabled")
+          .eq("instance_id", instance.id)
           .eq("external_id", normalized.groupId)
           .maybeSingle()
       : { data: null, error: null };
@@ -68,7 +108,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         ok: true,
         ignored: true,
-        reason: group ? "group_not_monitored" : "group_not_found",
+        reason: group ? "group_not_monitored" : "group_not_found_for_instance",
         normalized,
       });
     }
@@ -92,7 +132,7 @@ export async function POST(req: NextRequest) {
           phone: normalized.phone,
           lid: normalized.lid,
           last_seen_at: now,
-          metadata: { source_event_id: evt.id },
+          metadata: { source_event_id: evt.id, monitor_instance_id: instance.id },
           updated_at: now,
         })
         .eq("id", existingLead.id);
@@ -102,7 +142,7 @@ export async function POST(req: NextRequest) {
       const { data: createdLead, error: createLeadError } = await supabase
         .from("leads")
         .insert({
-          instance_id: group.instance_id,
+          instance_id: instance.id,
           group_id: group.id,
           external_participant_id: normalized.participantId,
           phone: normalized.phone,
@@ -112,7 +152,7 @@ export async function POST(req: NextRequest) {
           status: "captured",
           first_seen_at: now,
           last_seen_at: now,
-          metadata: { source_event_id: evt.id },
+          metadata: { source_event_id: evt.id, monitor_instance_id: instance.id },
         })
         .select("id")
         .single();
@@ -129,6 +169,7 @@ export async function POST(req: NextRequest) {
       ok: true,
       captured: true,
       lead_id: leadId,
+      monitor_instance: { id: instance.id, name: instance.name },
       group: { id: group.id, name: group.name },
       normalized,
     });
