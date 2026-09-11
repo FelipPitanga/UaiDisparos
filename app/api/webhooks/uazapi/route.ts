@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { UazapiProvider } from "@/lib/providers/uazapi";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { enqueueForAutomation } from "@/lib/automation";
 
 export const dynamic = "force-dynamic";
 
@@ -91,11 +92,7 @@ export async function POST(req: NextRequest) {
     const markProcessed = async (processingError: string | null = null) => {
       await supabase
         .from("webhook_events")
-        .update({
-          processed: true,
-          processing_error: processingError,
-          processed_at: new Date().toISOString(),
-        })
+        .update({ processed: true, processing_error: processingError, processed_at: new Date().toISOString() })
         .eq("id", evt.id);
     };
 
@@ -127,25 +124,15 @@ export async function POST(req: NextRequest) {
 
     if (!group?.monitoring_enabled) {
       await markProcessed();
-      return NextResponse.json({
-        ok: true,
-        ignored: true,
-        reason: group ? "group_not_monitored" : "group_not_found_for_instance",
-        normalized,
-      });
+      return NextResponse.json({ ok: true, ignored: true, reason: group ? "group_not_monitored" : "group_not_found_for_instance", normalized });
     }
 
     const now = new Date().toISOString();
     const dedupeKey = leadDedupeKey(group.external_id, normalized);
-
     let existingLead: any = null;
 
     if (dedupeKey) {
-      const { data, error } = await supabase
-        .from("leads")
-        .select("id,capture_count")
-        .eq("dedupe_key", dedupeKey)
-        .maybeSingle();
+      const { data, error } = await supabase.from("leads").select("id,capture_count").eq("dedupe_key", dedupeKey).maybeSingle();
       if (error) throw error;
       existingLead = data;
     }
@@ -176,23 +163,16 @@ export async function POST(req: NextRequest) {
 
     if (existingLead?.id) {
       duplicate = true;
-      const { error: updateLeadError } = await supabase
-        .from("leads")
-        .update({
-          phone: normalized.phone,
-          lid: normalized.lid,
-          external_participant_id: normalized.participantId,
-          last_seen_at: now,
-          capture_count: Number(existingLead.capture_count || 1) + 1,
-          dedupe_key: dedupeKey,
-          metadata: {
-            source_event_id: evt.id,
-            last_monitor_instance_id: instance.id,
-            duplicate_capture: true,
-          },
-          updated_at: now,
-        })
-        .eq("id", existingLead.id);
+      const { error: updateLeadError } = await supabase.from("leads").update({
+        phone: normalized.phone,
+        lid: normalized.lid,
+        external_participant_id: normalized.participantId,
+        last_seen_at: now,
+        capture_count: Number(existingLead.capture_count || 1) + 1,
+        dedupe_key: dedupeKey,
+        metadata: { source_event_id: evt.id, last_monitor_instance_id: instance.id, duplicate_capture: true },
+        updated_at: now,
+      }).eq("id", existingLead.id);
       if (updateLeadError) throw updateLeadError;
       leadId = existingLead.id;
     } else {
@@ -210,65 +190,52 @@ export async function POST(req: NextRequest) {
         status: "captured",
         first_seen_at: now,
         last_seen_at: now,
-        metadata: {
-          source_event_id: evt.id,
-          first_monitor_instance_id: instance.id,
-        },
+        metadata: { source_event_id: evt.id, first_monitor_instance_id: instance.id },
       };
 
-      const { data: createdLead, error: createLeadError } = await supabase
-        .from("leads")
-        .insert(insertPayload)
-        .select("id")
-        .single();
+      const { data: createdLead, error: createLeadError } = await supabase.from("leads").insert(insertPayload).select("id").single();
 
       if (createLeadError) {
-        // Em caso de corrida entre Monitor X/Y, a chave única vence; buscamos o lead já criado.
         if (dedupeKey && createLeadError.code === "23505") {
-          const { data: racedLead, error: racedError } = await supabase
-            .from("leads")
-            .select("id,capture_count")
-            .eq("dedupe_key", dedupeKey)
-            .single();
+          const { data: racedLead, error: racedError } = await supabase.from("leads").select("id,capture_count").eq("dedupe_key", dedupeKey).single();
           if (racedError || !racedLead) throw racedError ?? createLeadError;
-
           duplicate = true;
           leadId = racedLead.id;
-          await supabase
-            .from("leads")
-            .update({
-              last_seen_at: now,
-              capture_count: Number(racedLead.capture_count || 1) + 1,
-              updated_at: now,
-            })
-            .eq("id", racedLead.id);
-        } else {
-          throw createLeadError;
-        }
-      } else if (!createdLead) {
-        throw new Error("lead_not_created");
-      } else {
-        leadId = createdLead.id;
+          await supabase.from("leads").update({ last_seen_at: now, capture_count: Number(racedLead.capture_count || 1) + 1, updated_at: now }).eq("id", racedLead.id);
+        } else throw createLeadError;
+      } else if (!createdLead) throw new Error("lead_not_created");
+      else leadId = createdLead.id;
+    }
+
+    let automationResult: any = { queued: false };
+    const identity = canonicalIdentity(normalized);
+    if (identity && normalized.phone) {
+      try {
+        automationResult = await enqueueForAutomation({
+          leadId,
+          groupId: group.id,
+          groupExternalId: group.external_id,
+          identity,
+          sourceTimestamp: typeof payload?.event?.Timestamp === "string" ? payload.event.Timestamp : null,
+        });
+      } catch (automationError) {
+        automationResult = { queued: false, error: automationError instanceof Error ? automationError.message : "automation_error" };
       }
     }
 
-    await markProcessed();
+    await markProcessed(automationResult?.error ? `automation:${automationResult.error}` : null);
 
     return NextResponse.json({
       ok: true,
       captured: true,
       duplicate,
       lead_id: leadId,
+      automation: automationResult,
       monitor_instance: { id: instance.id, name: instance.name },
       group: { id: group.id, name: group.name, external_id: group.external_id },
       normalized,
     });
   } catch (error) {
-    return NextResponse.json({
-      ok: false,
-      error: "processing_failed",
-      detail: error instanceof Error ? error.message : "unknown error",
-      normalized,
-    }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "processing_failed", detail: error instanceof Error ? error.message : "unknown error", normalized }, { status: 500 });
   }
 }
