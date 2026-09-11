@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import SyncButton from "./SyncButton";
+import AutoRefresh from "./AutoRefresh";
 import MonitorToggle from "./MonitorToggle";
 import WebhookStatus from "./WebhookStatus";
 
@@ -101,9 +102,12 @@ export default async function Page({ searchParams }: { searchParams?: { instance
       <div className="topbar">
         <div>
           <h1>Grupos</h1>
-          <div className="subtitle">Escolha o monitorador, sincronize os grupos e marque quais entram no monitoramento.</div>
+          <div className="subtitle">Webhook captura entradas em tempo real. A lista de grupos é sincronizada automaticamente a cada 10 segundos.</div>
         </div>
-        {selectedId ? <SyncButton instanceId={selectedId} /> : null}
+        <div className="toolbar">
+          <AutoRefresh intervalMs={10000} />
+          {selectedId ? <SyncButton instanceId={selectedId} /> : null}
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom: 18 }}>
