@@ -15,6 +15,7 @@ export async function POST(req: NextRequest) {
     const campaignIds = uniqStrings(body?.campaign_ids?.length ? body.campaign_ids : [body?.campaign_id], 5);
     const senderInstanceIds = uniqStrings(body?.sender_instance_ids?.length ? body.sender_instance_ids : [body?.sender_instance_id], 10);
     const delaySeconds = Math.min(86400, Math.max(0, Number(body?.delay_seconds || 0)));
+    const sendIntervalSeconds = Math.min(3600, Math.max(0, Number(body?.send_interval_seconds ?? 30)));
     const dailyLimitPerSender = Math.min(1000, Math.max(1, Number(body?.daily_limit_per_sender || 40)));
     const active = body?.active === true;
     const authorizationConfirmed = body?.authorization_confirmed === true;
@@ -52,6 +53,7 @@ export async function POST(req: NextRequest) {
       campaign_ids: campaignIds,
       sender_instance_ids: senderInstanceIds,
       delay_seconds: Math.round(delaySeconds),
+      send_interval_seconds: Math.round(sendIntervalSeconds),
       daily_limit_per_sender: Math.round(dailyLimitPerSender),
       active,
       authorization_confirmed: authorizationConfirmed,
