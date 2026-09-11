@@ -18,19 +18,32 @@ export class UazapiProvider {
   private headers() {
     return {
       "Content-Type": "application/json",
-      "token": this.config.token,
+      token: this.config.token,
     };
   }
 
-  async listGroups() {
-    // Endpoint temporário: validar na documentação UAZAPI antes de usar em produção.
-    const res = await fetch(`${this.config.baseUrl}/group/list`, {
+  async listGroups(force = false) {
+    const baseUrl = this.config.baseUrl.replace(/\/$/, "");
+    const res = await fetch(`${baseUrl}/group/list?force=${force ? "true" : "false"}`, {
       method: "GET",
       headers: this.headers(),
       cache: "no-store",
     });
-    if (!res.ok) throw new Error(`UAZAPI listGroups failed: ${res.status}`);
-    return res.json();
+
+    const text = await res.text();
+    let body: unknown = text;
+
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      // Mantém texto bruto para facilitar diagnóstico.
+    }
+
+    if (!res.ok) {
+      throw new Error(`UAZAPI listGroups failed: ${res.status} ${typeof body === "string" ? body : JSON.stringify(body)}`);
+    }
+
+    return body;
   }
 
   normalizeWebhook(payload: any): NormalizedGroupEvent {
