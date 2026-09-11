@@ -28,6 +28,14 @@ type SendMediaInput = {
   docName?: string;
 };
 
+type SendMenuInput = {
+  number: string;
+  text: string;
+  choices: string[];
+  footerText?: string;
+  delay?: number;
+};
+
 export class UazapiProvider {
   constructor(private config: UazapiConfig) {}
 
@@ -95,6 +103,23 @@ export class UazapiProvider {
         type: input.type ?? "image",
         file: input.file,
         docName: input.docName ?? "",
+        replyid: "",
+        mentions: "",
+        readchat: true,
+        delay: input.delay ?? 0,
+      }),
+    });
+  }
+
+  async sendMenu(input: SendMenuInput) {
+    return this.request("/send/menu", {
+      method: "POST",
+      body: JSON.stringify({
+        number: input.number,
+        type: "button",
+        text: input.text,
+        choices: input.choices.slice(0, 3),
+        footerText: input.footerText ?? "",
         replyid: "",
         mentions: "",
         readchat: true,
