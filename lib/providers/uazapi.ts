@@ -12,6 +12,22 @@ export type NormalizedGroupEvent = {
   raw: unknown;
 };
 
+type SendTextInput = {
+  number: string;
+  text: string;
+  delay?: number;
+  linkPreview?: boolean;
+};
+
+type SendMediaInput = {
+  number: string;
+  text?: string;
+  file: string;
+  type?: "image" | "video" | "audio" | "ptt" | "document" | "sticker";
+  delay?: number;
+  docName?: string;
+};
+
 export class UazapiProvider {
   constructor(private config: UazapiConfig) {}
 
@@ -22,11 +38,14 @@ export class UazapiProvider {
     };
   }
 
-  async listGroups(force = false) {
+  private async request(path: string, init: RequestInit) {
     const baseUrl = this.config.baseUrl.replace(/\/$/, "");
-    const res = await fetch(`${baseUrl}/group/list?force=${force ? "true" : "false"}`, {
-      method: "GET",
-      headers: this.headers(),
+    const res = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers: {
+        ...this.headers(),
+        ...(init.headers ?? {}),
+      },
       cache: "no-store",
     });
 
@@ -36,14 +55,52 @@ export class UazapiProvider {
     try {
       body = text ? JSON.parse(text) : null;
     } catch {
-      // Mantém texto bruto para facilitar diagnóstico.
+      // Mantém texto bruto para diagnóstico.
     }
 
     if (!res.ok) {
-      throw new Error(`UAZAPI listGroups failed: ${res.status} ${typeof body === "string" ? body : JSON.stringify(body)}`);
+      throw new Error(`UAZAPI request failed: ${res.status} ${typeof body === "string" ? body : JSON.stringify(body)}`);
     }
 
     return body;
+  }
+
+  async listGroups(force = false) {
+    return this.request(`/group/list?force=${force ? "true" : "false"}`, {
+      method: "GET",
+    });
+  }
+
+  async sendText(input: SendTextInput) {
+    return this.request("/send/text", {
+      method: "POST",
+      body: JSON.stringify({
+        number: input.number,
+        text: input.text,
+        linkPreview: input.linkPreview ?? false,
+        replyid: "",
+        mentions: "",
+        readchat: true,
+        delay: input.delay ?? 0,
+      }),
+    });
+  }
+
+  async sendMedia(input: SendMediaInput) {
+    return this.request("/send/media", {
+      method: "POST",
+      body: JSON.stringify({
+        number: input.number,
+        text: input.text ?? "",
+        type: input.type ?? "image",
+        file: input.file,
+        docName: input.docName ?? "",
+        replyid: "",
+        mentions: "",
+        readchat: true,
+        delay: input.delay ?? 0,
+      }),
+    });
   }
 
   normalizeWebhook(payload: any): NormalizedGroupEvent {
