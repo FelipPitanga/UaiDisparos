@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import SyncButton from "./SyncButton";
+import MonitorToggle from "./MonitorToggle";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export default async function Page() {
       <div className="topbar">
         <div>
           <h1>Grupos</h1>
-          <div className="subtitle">Grupos sincronizados da UAZAPI.</div>
+          <div className="subtitle">Escolha quais grupos o UaiDisparos deve monitorar em tempo real.</div>
         </div>
         <SyncButton />
       </div>
@@ -43,17 +44,11 @@ export default async function Page() {
                 <td>{group.name || "Sem nome"}</td>
                 <td>{group.external_id}</td>
                 <td>{group.member_count ?? "—"}</td>
-                <td>
-                  <span className={`badge ${group.monitoring_enabled ? "ok" : "warn"}`}>
-                    {group.monitoring_enabled ? "Ativo" : "Pausado"}
-                  </span>
-                </td>
+                <td><MonitorToggle id={group.id} initialEnabled={Boolean(group.monitoring_enabled)} /></td>
               </tr>
             ))}
             {!groups?.length ? (
-              <tr>
-                <td colSpan={4}>Nenhum grupo sincronizado ainda.</td>
-              </tr>
+              <tr><td colSpan={4}>Nenhum grupo sincronizado ainda.</td></tr>
             ) : null}
           </tbody>
         </table>
