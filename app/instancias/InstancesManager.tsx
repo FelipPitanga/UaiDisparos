@@ -45,6 +45,7 @@ export default function InstancesManager({ initialInstances }: Props) {
   const [name, setName] = useState("");
   const [role, setRole] = useState<InstanceRow["instance_role"]>("sender");
   const [busy, setBusy] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [connectId, setConnectId] = useState<string | null>(null);
   const [qrCode, setQrCode] = useState<string | null>(null);
@@ -152,6 +153,30 @@ export default function InstancesManager({ initialInstances }: Props) {
     }
   }
 
+  async function deleteInstance(instance: InstanceRow) {
+    const confirmed = window.confirm(
+      `Excluir a instância "${instance.name}"?\n\nIsso remove a instância da UAZAPI e também do UaiDisparos.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingId(instance.id);
+    setError("");
+
+    try {
+      const response = await fetch(`/api/uazapi/instances/${instance.id}`, { method: "DELETE" });
+      const data = await response.json();
+      if (!response.ok || !data?.ok) throw new Error(data?.error || "Não foi possível excluir a instância.");
+
+      setInstances((current) => current.filter((item) => item.id !== instance.id));
+      if (connectId === instance.id) setConnectId(null);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao excluir instância.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
     <>
       <div className="topbar">
@@ -190,13 +215,23 @@ export default function InstancesManager({ initialInstances }: Props) {
               <span className="badge">{roleLabel(instance.instance_role)}</span>
               <span className="badge">UAZAPI</span>
             </div>
-            <button
-              className="btn instance-action"
-              onClick={() => generateQr(instance.id)}
-              disabled={instance.status === "connected"}
-            >
-              {instance.status === "connected" ? "WhatsApp conectado" : "Gerar QR Code"}
-            </button>
+            <div className="instance-actions-row">
+              <button
+                className="btn instance-action"
+                onClick={() => generateQr(instance.id)}
+                disabled={instance.status === "connected" || deletingId === instance.id}
+              >
+                {instance.status === "connected" ? "WhatsApp conectado" : "Gerar QR Code"}
+              </button>
+              <button
+                className="btn danger-btn"
+                onClick={() => deleteInstance(instance)}
+                disabled={deletingId === instance.id}
+                title="Excluir instância"
+              >
+                {deletingId === instance.id ? "Excluindo..." : "Excluir"}
+              </button>
+            </div>
           </div>
         ))}
       </div>
