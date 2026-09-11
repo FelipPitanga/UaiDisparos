@@ -38,28 +38,60 @@ export async function POST() {
     const provider = new UazapiProvider({ baseUrl, token });
     const payload = await provider.listGroups();
     const groups = extractGroups(payload).filter((group) => Boolean(group.JID));
-
     const supabase = getSupabaseAdmin();
+    const externalId = "uazapi-env-default";
+    const now = new Date().toISOString();
 
-    const { data: instance, error: instanceError } = await supabase
+    // instances.external_id possui índice UNIQUE parcial. O PostgREST não consegue
+    // inferi-lo via ON CONFLICT, então fazemos select + update/insert explicitamente.
+    const { data: existingInstance, error: lookupError } = await supabase
       .from("instances")
-      .upsert(
-        {
+      .select("id")
+      .eq("external_id", externalId)
+      .maybeSingle();
+
+    if (lookupError) {
+      throw new Error(`Falha ao localizar instância: ${lookupError.message}`);
+    }
+
+    let instanceId: string;
+
+    if (existingInstance?.id) {
+      const { error: updateError } = await supabase
+        .from("instances")
+        .update({
           name: "UAZAPI Principal",
           provider: "uazapi",
-          external_id: "uazapi-env-default",
           status: "connected",
           base_url: baseUrl,
-          last_seen_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "external_id" },
-      )
-      .select("id")
-      .single();
+          last_seen_at: now,
+          updated_at: now,
+        })
+        .eq("id", existingInstance.id);
 
-    if (instanceError || !instance) {
-      throw new Error(`Falha ao salvar instância: ${instanceError?.message ?? "sem retorno"}`);
+      if (updateError) {
+        throw new Error(`Falha ao atualizar instância: ${updateError.message}`);
+      }
+      instanceId = existingInstance.id;
+    } else {
+      const { data: createdInstance, error: insertError } = await supabase
+        .from("instances")
+        .insert({
+          name: "UAZAPI Principal",
+          provider: "uazapi",
+          external_id: externalId,
+          status: "connected",
+          base_url: baseUrl,
+          last_seen_at: now,
+          updated_at: now,
+        })
+        .select("id")
+        .single();
+
+      if (insertError || !createdInstance) {
+        throw new Error(`Falha ao salvar instância: ${insertError?.message ?? "sem retorno"}`);
+      }
+      instanceId = createdInstance.id;
     }
 
     if (groups.length === 0) {
@@ -67,12 +99,12 @@ export async function POST() {
     }
 
     const rows = groups.map((group) => ({
-      instance_id: instance.id,
+      instance_id: instanceId,
       external_id: group.JID!,
       name: group.Name || group.JID,
       subject: group.Topic || null,
       member_count: Array.isArray(group.Participants) ? group.Participants.length : null,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
       metadata: {
         owner_jid: group.OwnerJID ?? null,
         addressing_mode: group.AddressingMode ?? null,
