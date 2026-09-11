@@ -38,7 +38,44 @@ function saoPauloDayStartIso() {
 
 function isDisconnectedSessionError(message: string) {
   const value = message.toLowerCase();
-  return value.includes("whatsapp disconnected") || value.includes("session is not reconnectable") || value.includes("uazapi request failed: 503");
+  return value.includes("whatsapp disconnected") || value.includes("session is not reconnectable");
+}
+
+function parseReachoutRestriction(message: string) {
+  const value = message.toLowerCase();
+  const restricted = value.includes("whatsapp_reachout_timelock") || value.includes("provider_code\\\":463") || value.includes("server error 463") || value.includes("temporary restriction for starting new conversations");
+  if (!restricted) return null;
+
+  const untilMatch = message.match(/\"until\"\s*:\s*\"([^\"]+)\"/i) || message.match(/"until"\s*:\s*"([^"]+)"/i);
+  const untilRaw = untilMatch?.[1] || null;
+  const untilMs = untilRaw ? Date.parse(untilRaw) : NaN;
+  const until = Number.isFinite(untilMs) ? new Date(untilMs).toISOString() : new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+  return {
+    code: "WHATSAPP_REACHOUT_TIMELOCK",
+    until,
+    reason: "WhatsApp restringiu temporariamente o início de novas conversas nesta conta.",
+  };
+}
+
+function formatLocalTime(iso: string) {
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+}
+
+function friendlySendError(message: string) {
+  const pt = message.match(/\"provider_message_ptbr\"\s*:\s*\"([^\"]+)\"/i) || message.match(/"provider_message_ptbr"\s*:\s*"([^"]+)"/i);
+  if (pt?.[1]) return pt[1].replace(/\\n/g, " ").slice(0, 500);
+  return message.length > 500 ? `${message.slice(0, 500)}…` : message;
 }
 
 async function senderUsageToday(supabase: any, senderIds: string[]) {
@@ -67,26 +104,45 @@ async function latestSenderSendAt(supabase: any, senderId: string) {
 async function chooseSender(supabase: any, broadcast: any, preferredId?: string | null) {
   const ids: string[] = Array.isArray(broadcast.sender_instance_ids) ? broadcast.sender_instance_ids : [];
   if (!ids.length) return { sender: null, reason: "no_sender" };
-  const { data: senders } = await supabase.from("instances").select("id,name,status,instance_role,base_url,api_token").in("id", ids);
+
+  const { data: senders } = await supabase
+    .from("instances")
+    .select("id,name,status,instance_role,base_url,api_token,send_blocked_until,send_block_reason,send_block_code")
+    .in("id", ids);
+
   const usage = await senderUsageToday(supabase, ids);
   const limit = Number(broadcast.daily_limit_per_sender || 40);
   const intervalMs = Math.max(1, Number(broadcast.send_interval_seconds || 30)) * 1000;
   const byId = new Map((senders || []).map((item: any) => [item.id, item]));
-  const ordered = preferredId && ids.includes(preferredId) ? [preferredId, ...ids.filter((id) => id !== preferredId)] : [...ids].sort((a, b) => (usage.get(a) || 0) - (usage.get(b) || 0));
+  const ordered = preferredId && ids.includes(preferredId)
+    ? [preferredId, ...ids.filter((id) => id !== preferredId)]
+    : [...ids].sort((a, b) => (usage.get(a) || 0) - (usage.get(b) || 0));
 
   let soonest: number | null = null;
+  let restrictedSoonest: number | null = null;
+
   for (const id of ordered) {
     const sender: any = byId.get(id);
     if (!sender || sender.instance_role !== "sender" || sender.status !== "connected" || !sender.base_url || !sender.api_token) continue;
     if ((usage.get(id) || 0) >= limit) continue;
+
+    const blockedUntil = sender.send_blocked_until ? Date.parse(sender.send_blocked_until) : NaN;
+    if (Number.isFinite(blockedUntil) && blockedUntil > Date.now()) {
+      restrictedSoonest = restrictedSoonest == null ? blockedUntil : Math.min(restrictedSoonest, blockedUntil);
+      continue;
+    }
+
     const lastAt = await latestSenderSendAt(supabase, id);
     const nextAt = lastAt ? lastAt + intervalMs : 0;
     if (nextAt > Date.now()) {
       soonest = soonest == null ? nextAt : Math.min(soonest, nextAt);
       continue;
     }
+
     return { sender, usage: usage.get(id) || 0, limit };
   }
+
+  if (restrictedSoonest != null) return { sender: null, reason: "restricted", nextAt: restrictedSoonest };
   return { sender: null, reason: "no_sender_ready", nextAt: soonest };
 }
 
@@ -120,7 +176,10 @@ export async function processPrivateRecipient(id: string) {
 
   const choice = await chooseSender(supabase, broadcast, recipient.instance_id);
   if (!choice.sender) {
-    const update: any = { status: "queued", error_message: "Aguardando conta disponível / intervalo / limite diário", updated_at: new Date().toISOString() };
+    const detail = choice.reason === "restricted" && choice.nextAt
+      ? `Conta temporariamente impedida pelo WhatsApp de iniciar novas conversas até ${formatLocalTime(new Date(choice.nextAt).toISOString())}.`
+      : "Aguardando conta disponível / intervalo / limite diário";
+    const update: any = { status: "queued", error_message: detail, updated_at: new Date().toISOString() };
     if (choice.nextAt) update.scheduled_at = new Date(choice.nextAt).toISOString();
     await supabase.from("private_broadcast_recipients").update(update).eq("id", id);
     return { ok: false, queued: true };
@@ -131,7 +190,7 @@ export async function processPrivateRecipient(id: string) {
   const groupName = sourceGroup?.name || sourceGroup?.external_id || "";
   const text = renderText(campaign.text_content, recipient, groupName);
   const buttons = normalizeButtons(campaign.buttons);
-  await supabase.from("private_broadcast_recipients").update({ status: "processing", instance_id: sender.id, attempts: Number(recipient.attempts || 0) + 1, error_message: null, updated_at: new Date().toISOString() }).eq("id", id);
+  await supabase.from("private_broadcast_recipients").update({ status: "processing", instance_id: sender.id, attempts: Number(recipient.attempts || 0) + 1, error_message: null, scheduled_at: null, updated_at: new Date().toISOString() }).eq("id", id);
 
   try {
     const ids: string[] = [];
@@ -161,20 +220,47 @@ export async function processPrivateRecipient(id: string) {
     }
 
     const now = new Date().toISOString();
-    await supabase.from("private_broadcast_recipients").update({ status: "sent", instance_id: sender.id, provider_message_id: ids.join(",") || null, processed_at: now, error_message: null, updated_at: now }).eq("id", id);
+    await Promise.all([
+      supabase.from("private_broadcast_recipients").update({ status: "sent", instance_id: sender.id, provider_message_id: ids.join(",") || null, processed_at: now, error_message: null, updated_at: now }).eq("id", id),
+      supabase.from("instances").update({ send_blocked_until: null, send_block_reason: null, send_block_code: null }).eq("id", sender.id),
+    ]);
     return { ok: true, sent: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erro no envio";
     const now = new Date().toISOString();
+    const restriction = parseReachoutRestriction(message);
+
+    if (restriction) {
+      const resumeAt = new Date(Date.parse(restriction.until) + 30_000).toISOString();
+      await Promise.all([
+        supabase.from("instances").update({
+          send_blocked_until: restriction.until,
+          send_block_reason: restriction.reason,
+          send_block_code: restriction.code,
+          updated_at: now,
+        }).eq("id", sender.id),
+        supabase.from("private_broadcast_recipients").update({
+          status: "queued",
+          error_message: `WhatsApp restringiu temporariamente novas conversas nesta conta até ${formatLocalTime(restriction.until)}. O envio será retomado depois desse horário.`,
+          scheduled_at: resumeAt,
+          processed_at: null,
+          updated_at: now,
+        }).eq("id", id),
+      ]);
+      return { ok: false, queued: true, restricted: true, until: restriction.until };
+    }
+
     if (isDisconnectedSessionError(message)) {
       await Promise.all([
         supabase.from("instances").update({ status: "disconnected", updated_at: now }).eq("id", sender.id),
-        supabase.from("private_broadcast_recipients").update({ status: "queued", error_message: "Conta desconectada — aguardando outra conta ou reconexão", processed_at: null, updated_at: now }).eq("id", id),
+        supabase.from("private_broadcast_recipients").update({ status: "queued", error_message: "Conta realmente desconectada da sessão — aguardando outra conta ou reconexão", processed_at: null, updated_at: now }).eq("id", id),
       ]);
-      return { ok: false, queued: true };
+      return { ok: false, queued: true, disconnected: true };
     }
-    await supabase.from("private_broadcast_recipients").update({ status: "failed", error_message: message, processed_at: now, updated_at: now }).eq("id", id);
-    return { ok: false, error: message };
+
+    const friendly = friendlySendError(message);
+    await supabase.from("private_broadcast_recipients").update({ status: "failed", error_message: friendly, processed_at: now, updated_at: now }).eq("id", id);
+    return { ok: false, error: friendly };
   }
 }
 
