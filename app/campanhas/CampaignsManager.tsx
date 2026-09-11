@@ -23,12 +23,19 @@ const emptyButtons: ButtonItem[] = [
   { id: "btn_3", label: "", value: "", type: "reply" },
 ];
 
+function buttonIcon(type: ButtonItem["type"]) {
+  if (type === "url") return "↗";
+  if (type === "call") return "☎";
+  if (type === "copy") return "⧉";
+  return "↩";
+}
+
 export default function CampaignsManager({ initialCampaigns }: Props) {
   const router = useRouter();
   const [campaigns, setCampaigns] = useState(initialCampaigns);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const [text, setText] = useState("Olá! 👋\n\nBem-vindo ao grupo {{grupo}}.");
+  const [text, setText] = useState("Olá {{telefone}} 👋\n\nBem-vindo ao grupo {{grupo}}.\n\nClique no link abaixo e finalize sua inscrição!");
   const [mediaUrl, setMediaUrl] = useState("");
   const [mediaType, setMediaType] = useState("none");
   const [footerText, setFooterText] = useState("");
@@ -43,10 +50,12 @@ export default function CampaignsManager({ initialCampaigns }: Props) {
     .replace(/{{\s*data\s*}}/gi, "11/09/2026")
     .replace(/{{\s*hora\s*}}/gi, "18:00"), [text]);
 
+  const activeButtons = useMemo(() => buttons.filter((b) => b.label.trim() && b.value.trim()), [buttons]);
+
   function resetForm() {
     setEditingId(null);
     setName("");
-    setText("Olá! 👋\n\nBem-vindo ao grupo {{grupo}}.");
+    setText("Olá {{telefone}} 👋\n\nBem-vindo ao grupo {{grupo}}.\n\nClique no link abaixo e finalize sua inscrição!");
     setMediaUrl("");
     setMediaType("none");
     setFooterText("");
@@ -77,7 +86,7 @@ export default function CampaignsManager({ initialCampaigns }: Props) {
         media_url: mediaUrl,
         media_type: mediaUrl ? mediaType : "none",
         footer_text: footerText,
-        buttons: buttons.filter((x) => x.label.trim() && x.value.trim()),
+        buttons: activeButtons,
         status: "active",
       };
       const response = await fetch(editingId ? `/api/campaigns/${editingId}` : "/api/campaigns", {
@@ -146,7 +155,7 @@ export default function CampaignsManager({ initialCampaigns }: Props) {
             <div className="button-editor-row" key={button.id}>
               <input className="input" value={button.label} onChange={(e) => updateButton(index, "label", e.target.value)} placeholder={`Texto do botão ${index + 1}`} />
               <select className="select" value={button.type} onChange={(e) => updateButton(index, "type", e.target.value as ButtonItem["type"])}><option value="reply">Resposta</option><option value="url">Link</option><option value="call">Ligar</option><option value="copy">Copiar</option></select>
-              <input className="input" value={button.value} onChange={(e) => updateButton(index, "value", e.target.value)} placeholder={button.type === "url" ? "https://..." : button.type === "call" ? "+5562..." : button.type === "copy" ? "CUPOM10" : "id_resposta"} />
+              <input className="input" value={button.value} onChange={(e) => updateButton(index, "value", e.target.value)} placeholder={button.type === "url" ? "https://..." : button.type === "call" ? "+5562..." : button.type === "copy" ? "CUPOM10" : "Não obrigatório"} />
             </div>
           ))}
 
@@ -155,11 +164,38 @@ export default function CampaignsManager({ initialCampaigns }: Props) {
         </div>
 
         <div className="card campaign-preview">
-          <div className="section-title">Prévia</div>
-          {mediaUrl ? <div className="media-preview"><div className="muted">{mediaType.toUpperCase()}</div><div className="media-url-preview">{mediaUrl}</div></div> : null}
-          <div className="message-preview">{preview || "Sua mensagem aparece aqui."}</div>
-          <div className="preview-buttons">{buttons.filter((b) => b.label && b.value).map((button) => <div className="preview-button" key={button.id}>{button.label}</div>)}</div>
-          {footerText ? <div className="muted" style={{ marginTop: 10 }}>{footerText}</div> : null}
+          <div className="section-title">Prévia da conversa</div>
+          <div className="wa-phone">
+            <div className="wa-header">
+              <div className="wa-avatar">U</div>
+              <div className="wa-contact"><strong>UaiDisparos</strong><span>online</span></div>
+              <div className="wa-header-icons">⌕ ⋮</div>
+            </div>
+            <div className="wa-chat">
+              <div className="wa-date">HOJE</div>
+              <div className="wa-bubble incoming">Oi, acabei de entrar no grupo 👋<span className="wa-time">17:59</span></div>
+              <div className="wa-bubble outgoing">
+                {mediaUrl ? (
+                  <div className="wa-media">
+                    {mediaType === "image" ? <img src={mediaUrl} alt="Prévia da mídia" /> : <div className="wa-media-placeholder">{mediaType.toUpperCase()}<small>{mediaUrl}</small></div>}
+                  </div>
+                ) : null}
+                <div className="wa-message-text">{preview || "Sua mensagem aparece aqui."}</div>
+                {footerText ? <div className="wa-footer">{footerText}</div> : null}
+                <span className="wa-time">18:00 ✓✓</span>
+                {activeButtons.length ? (
+                  <div className="wa-actions">
+                    {activeButtons.map((button) => (
+                      <div className="wa-action-button" key={button.id}>
+                        <span>{buttonIcon(button.type)}</span>{button.label}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div className="wa-composer"><span>＋</span><div>Mensagem</div><span>◉</span><span>🎤</span></div>
+          </div>
         </div>
       </div>
 
