@@ -47,10 +47,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
   try {
     const supabase = getSupabaseAdmin();
-    const { error } = await supabase.from("campaigns").delete().eq("id", params.id);
+    const now = new Date().toISOString();
+    const { error } = await supabase.from("campaigns").update({ status: "archived", updated_at: now }).eq("id", params.id);
     if (error) throw error;
+    await supabase.from("group_automations").update({ active: false, updated_at: now }).eq("campaign_id", params.id);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Erro ao excluir campanha." }, { status: 500 });
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Erro ao arquivar campanha." }, { status: 500 });
   }
 }
