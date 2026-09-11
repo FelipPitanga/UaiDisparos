@@ -32,14 +32,26 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     const body = await request.json().catch(() => ({}));
     const phone = cleanPhone(body?.phone);
+    const baseUrl = String(record.base_url).replace(/\/$/, "");
+    const headers = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      token: record.api_token,
+    };
 
-    const response = await fetch(`${String(record.base_url).replace(/\/$/, "")}/instance/connect`, {
+    // Se já existia uma tentativa por QR em andamento, encerra antes de pedir o pair code.
+    if (phone) {
+      await fetch(`${baseUrl}/instance/disconnect`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({}),
+        cache: "no-store",
+      }).catch(() => null);
+    }
+
+    const response = await fetch(`${baseUrl}/instance/connect`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        token: record.api_token,
-      },
+      headers,
       body: JSON.stringify(phone ? { phone } : {}),
       cache: "no-store",
     });
@@ -61,14 +73,21 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     const item = Array.isArray(provider) ? provider[0] : provider;
     const instance = item?.instance ?? item ?? {};
-    const qr = normalizeQr(instance?.qrcode ?? item?.qrcode ?? instance?.qrCode ?? item?.qrCode);
     const pairCode = instance?.paircode ?? item?.paircode ?? instance?.pairCode ?? item?.pairCode ?? instance?.code ?? item?.code ?? null;
+    const qr = phone ? null : normalizeQr(instance?.qrcode ?? item?.qrcode ?? instance?.qrCode ?? item?.qrCode);
     const nextStatus = instance?.status === "connected" ? "connected" : "connecting";
 
     await supabase
       .from("instances")
       .update({ status: nextStatus, updated_at: new Date().toISOString() })
       .eq("id", record.id);
+
+    if (phone && !pairCode) {
+      return NextResponse.json(
+        { ok: false, error: "A UAZAPI não retornou o código de pareamento. Tente gerar novamente em alguns segundos." },
+        { status: 502 },
+      );
+    }
 
     return NextResponse.json({ ok: true, qrcode: qr, pairCode, status: nextStatus, method: phone ? "code" : "qr" });
   } catch (error) {
