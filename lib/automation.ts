@@ -54,6 +54,12 @@ function normalizeButtons(buttons: any) {
     .slice(0, 3);
 }
 
+function tenSecondBucket(sourceTimestamp?: string | null) {
+  const parsed = sourceTimestamp ? Date.parse(sourceTimestamp) : NaN;
+  const value = Number.isFinite(parsed) ? parsed : Date.now();
+  return new Date(Math.floor(value / 10000) * 10000).toISOString();
+}
+
 export async function processJob(jobId: string) {
   const supabase = getSupabaseAdmin();
 
@@ -185,7 +191,7 @@ export async function enqueueForAutomation(params: {
   const recipient = String(lead?.phone || "").replace(/\D/g, "");
   if (!recipient) return { queued: false, reason: "lead_without_phone" };
 
-  const bucket = params.sourceTimestamp || new Date(Math.floor(Date.now() / 10000) * 10000).toISOString();
+  const bucket = tenSecondBucket(params.sourceTimestamp);
   const dedupeKey = `${automation.id}|${params.groupExternalId}|${params.identity}|${bucket}`;
   const now = new Date().toISOString();
 
