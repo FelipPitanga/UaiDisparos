@@ -1,18 +1,8 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { UazapiProvider } from "@/lib/providers/uazapi";
 
-type LeadLike = {
-  id: string;
-  phone: string | null;
-  lid: string | null;
-  name?: string | null;
-};
-
-type GroupLike = {
-  id: string;
-  name: string | null;
-  external_id: string;
-};
+type LeadLike = { id: string; phone: string | null; lid: string | null; name?: string | null };
+type GroupLike = { id: string; name: string | null; external_id: string };
 
 export function renderCampaignText(template: string | null, lead: LeadLike, group: GroupLike) {
   const now = new Date();
@@ -23,7 +13,6 @@ export function renderCampaignText(template: string | null, lead: LeadLike, grou
     data: new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo" }).format(now),
     hora: new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }).format(now),
   };
-
   return String(template || "").replace(/\{\{\s*(nome|telefone|grupo|data|hora)\s*\}\}/gi, (_, key) => replacements[String(key).toLowerCase()] ?? "");
 }
 
@@ -33,15 +22,12 @@ function extractMessageId(value: any) {
 
 function normalizeButtons(buttons: any) {
   if (!Array.isArray(buttons)) return [];
-  return buttons
-    .map((button, index) => ({
-      label: String(button?.label || button?.text || button?.value || "").trim().slice(0, 30),
-      value: String(button?.value || button?.id || `btn_${index + 1}`).trim().slice(0, 250),
-      type: ["reply", "url", "call", "copy"].includes(String(button?.type)) ? String(button.type) : "reply",
-      id: String(button?.id || `btn_${index + 1}`).trim().slice(0, 50),
-    }))
-    .filter((button) => button.label && button.value)
-    .slice(0, 3);
+  return buttons.map((button, index) => ({
+    label: String(button?.label || button?.text || button?.value || "").trim().slice(0, 30),
+    value: String(button?.value || button?.id || `btn_${index + 1}`).trim().slice(0, 250),
+    type: ["reply", "url", "call", "copy"].includes(String(button?.type)) ? String(button.type) : "reply",
+    id: String(button?.id || `btn_${index + 1}`).trim().slice(0, 50),
+  })).filter((button) => button.label && button.value).slice(0, 3);
 }
 
 function tenSecondBucket(sourceTimestamp?: string | null) {
@@ -55,27 +41,67 @@ function isDisconnectedSessionError(message: string) {
   return value.includes("whatsapp disconnected") || value.includes("session is not reconnectable") || value.includes("uazapi request failed: 503");
 }
 
+function saoPauloDayStartIso() {
+  const now = new Date();
+  const local = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  const y = local.getUTCFullYear();
+  const m = String(local.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(local.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}T03:00:00.000Z`;
+}
+
+async function selectSenderForAutomation(supabase: any, automation: any, preferredId?: string | null) {
+  const senderIds: string[] = automation.sender_instance_ids?.length
+    ? automation.sender_instance_ids
+    : automation.sender_instance_id ? [automation.sender_instance_id] : [];
+  if (!senderIds.length) return { sender: null, reason: "no_sender" };
+
+  const [{ data: senders }, { data: todayJobs }] = await Promise.all([
+    supabase.from("instances").select("id,name,status,instance_role,base_url,api_token").in("id", senderIds),
+    supabase.from("jobs").select("instance_id,status").in("instance_id", senderIds).in("status", ["sent", "processing"]).gte("created_at", saoPauloDayStartIso()),
+  ]);
+
+  const counts = new Map<string, number>();
+  for (const job of todayJobs || []) counts.set(job.instance_id, (counts.get(job.instance_id) || 0) + 1);
+  const limit = Number(automation.daily_limit_per_sender || 40);
+  const byId = new Map((senders || []).map((sender: any) => [sender.id, sender]));
+
+  const ordered = preferredId && senderIds.includes(preferredId)
+    ? [preferredId, ...senderIds.filter((id) => id !== preferredId)]
+    : senderIds;
+
+  for (const id of ordered) {
+    const sender: any = byId.get(id);
+    if (!sender || sender.instance_role !== "sender") continue;
+    if ((counts.get(id) || 0) >= limit) continue;
+    if (sender.status === "connected" && sender.base_url && sender.api_token) return { sender, usedToday: counts.get(id) || 0, limit };
+  }
+
+  const availableUnderLimit = ordered.find((id) => (counts.get(id) || 0) < limit && byId.get(id));
+  if (availableUnderLimit) return { sender: byId.get(availableUnderLimit), usedToday: counts.get(availableUnderLimit) || 0, limit, offline: true };
+  return { sender: null, reason: "daily_limit_reached", limit };
+}
+
 export async function processJob(jobId: string) {
   const supabase = getSupabaseAdmin();
-
   const { data: job, error: jobError } = await supabase
     .from("jobs")
-    .select("id,status,attempts,lead_id,group_id,campaign_id,automation_id,instance_id,recipient,payload")
+    .select("id,status,attempts,lead_id,group_id,campaign_id,automation_id,instance_id,recipient,payload,scheduled_at")
     .eq("id", jobId)
     .single();
 
   if (jobError || !job) throw jobError ?? new Error("Job não encontrado.");
   if (job.status === "sent") return { ok: true, alreadySent: true };
+  if (job.scheduled_at && new Date(job.scheduled_at).getTime() > Date.now()) return { ok: false, queued: true, reason: "scheduled" };
 
-  const [{ data: lead }, { data: group }, { data: campaign }, { data: sender }, { data: automation }] = await Promise.all([
+  const [{ data: lead }, { data: group }, { data: campaign }, { data: automation }] = await Promise.all([
     supabase.from("leads").select("id,phone,lid,name,consent_status").eq("id", job.lead_id).single(),
     supabase.from("groups").select("id,name,external_id").eq("id", job.group_id).single(),
     supabase.from("campaigns").select("id,name,text_content,media_url,media_type,buttons,footer_text").eq("id", job.campaign_id).single(),
-    supabase.from("instances").select("id,name,status,instance_role,base_url,api_token").eq("id", job.instance_id).single(),
-    supabase.from("group_automations").select("id,active,authorization_confirmed").eq("id", job.automation_id).single(),
+    supabase.from("group_automations").select("id,active,authorization_confirmed,sender_instance_id,sender_instance_ids,daily_limit_per_sender").eq("id", job.automation_id).single(),
   ]);
 
-  if (!lead || !group || !campaign || !sender || !automation) {
+  if (!lead || !group || !campaign || !automation) {
     await supabase.from("jobs").update({ status: "failed", error_message: "Dados incompletos do job", processed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", job.id);
     return { ok: false, error: "Dados incompletos do job" };
   }
@@ -85,9 +111,21 @@ export async function processJob(jobId: string) {
     return { ok: false, paused: true };
   }
 
-  if (sender.instance_role !== "sender" || sender.status !== "connected" || !sender.base_url || !sender.api_token) {
-    await supabase.from("jobs").update({ status: "queued", error_message: "Disparador offline — aguardando reconexão", processed_at: null, updated_at: new Date().toISOString() }).eq("id", job.id);
-    return { ok: false, queued: true, error: "Disparador offline" };
+  const senderChoice = await selectSenderForAutomation(supabase, automation, job.instance_id);
+  if (!senderChoice.sender) {
+    const detail = senderChoice.reason === "daily_limit_reached" ? "Limite diário das contas atingido — aguardando próximo período" : "Nenhum disparador disponível";
+    await supabase.from("jobs").update({ status: "queued", error_message: detail, processed_at: null, updated_at: new Date().toISOString() }).eq("id", job.id);
+    return { ok: false, queued: true, error: detail };
+  }
+
+  const sender: any = senderChoice.sender;
+  if (senderChoice.offline || sender.status !== "connected" || !sender.base_url || !sender.api_token) {
+    await supabase.from("jobs").update({ instance_id: sender.id, status: "queued", error_message: "Contas disponíveis estão offline — aguardando reconexão", processed_at: null, updated_at: new Date().toISOString() }).eq("id", job.id);
+    return { ok: false, queued: true, error: "Disparadores offline" };
+  }
+
+  if (job.instance_id !== sender.id) {
+    await supabase.from("jobs").update({ instance_id: sender.id, updated_at: new Date().toISOString() }).eq("id", job.id);
   }
 
   const recipient = String(job.recipient || lead.phone || "").replace(/\D/g, "");
@@ -96,13 +134,7 @@ export async function processJob(jobId: string) {
     return { ok: false, error: "Lead sem telefone utilizável" };
   }
 
-  const { data: suppressed } = await supabase
-    .from("suppression_list")
-    .select("id")
-    .or(`phone.eq.${recipient}${lead.lid ? `,lid.eq.${lead.lid}` : ""}`)
-    .limit(1)
-    .maybeSingle();
-
+  const { data: suppressed } = await supabase.from("suppression_list").select("id").or(`phone.eq.${recipient}${lead.lid ? `,lid.eq.${lead.lid}` : ""}`).limit(1).maybeSingle();
   if (suppressed) {
     await supabase.from("jobs").update({ status: "failed", error_message: "Destinatário na lista de supressão", processed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", job.id);
     return { ok: false, error: "Destinatário na lista de supressão" };
@@ -111,18 +143,12 @@ export async function processJob(jobId: string) {
   const text = renderCampaignText(campaign.text_content, lead, group);
   const provider = new UazapiProvider({ baseUrl: sender.base_url, token: sender.api_token });
   const buttons = normalizeButtons(campaign.buttons);
-
   await supabase.from("jobs").update({ status: "processing", attempts: Number(job.attempts || 0) + 1, error_message: null, updated_at: new Date().toISOString() }).eq("id", job.id);
 
   try {
     const ids: string[] = [];
     if (campaign.media_url && campaign.media_type && campaign.media_type !== "none") {
-      const mediaResult: any = await provider.sendMedia({
-        number: recipient,
-        file: campaign.media_url,
-        type: campaign.media_type as any,
-        text: buttons.length ? "" : text,
-      });
+      const mediaResult: any = await provider.sendMedia({ number: recipient, file: campaign.media_url, type: campaign.media_type as any, text: buttons.length ? "" : text });
       const mediaId = extractMessageId(mediaResult);
       if (mediaId) ids.push(String(mediaId));
     }
@@ -148,49 +174,28 @@ export async function processJob(jobId: string) {
     }
 
     const now = new Date().toISOString();
-    await supabase.from("jobs").update({
-      status: "sent",
-      provider_message_id: ids.join(",") || null,
-      processed_at: now,
-      error_message: null,
-      payload: { ...(job.payload || {}), rendered_text: text, buttons },
-      updated_at: now,
-    }).eq("id", job.id);
-
-    return { ok: true, sent: true };
+    await supabase.from("jobs").update({ status: "sent", instance_id: sender.id, provider_message_id: ids.join(",") || null, processed_at: now, error_message: null, payload: { ...(job.payload || {}), rendered_text: text, buttons }, updated_at: now }).eq("id", job.id);
+    return { ok: true, sent: true, senderId: sender.id };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro no envio";
-
     if (isDisconnectedSessionError(message)) {
       const now = new Date().toISOString();
       await Promise.all([
         supabase.from("instances").update({ status: "disconnected", updated_at: now }).eq("id", sender.id),
-        supabase.from("jobs").update({
-          status: "queued",
-          error_message: "Disparador desconectado — aguardando reconexão",
-          processed_at: null,
-          updated_at: now,
-        }).eq("id", job.id),
+        supabase.from("jobs").update({ status: "queued", error_message: "Disparador desconectado — aguardando outra conta ou reconexão", processed_at: null, updated_at: now }).eq("id", job.id),
       ]);
       return { ok: false, queued: true, disconnected: true, error: message };
     }
-
     await supabase.from("jobs").update({ status: "failed", error_message: message, processed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", job.id);
     return { ok: false, error: message };
   }
 }
 
-export async function enqueueForAutomation(params: {
-  leadId: string;
-  groupId: string;
-  groupExternalId: string;
-  identity: string;
-  sourceTimestamp?: string | null;
-}) {
+export async function enqueueForAutomation(params: { leadId: string; groupId: string; groupExternalId: string; identity: string; sourceTimestamp?: string | null }) {
   const supabase = getSupabaseAdmin();
   const { data: automation } = await supabase
     .from("group_automations")
-    .select("id,campaign_id,sender_instance_id,active,authorization_confirmed")
+    .select("id,campaign_id,sender_instance_id,campaign_ids,sender_instance_ids,delay_seconds,daily_limit_per_sender,active,authorization_confirmed")
     .eq("group_id", params.groupId)
     .eq("active", true)
     .maybeSingle();
@@ -201,33 +206,42 @@ export async function enqueueForAutomation(params: {
   const recipient = String(lead?.phone || "").replace(/\D/g, "");
   if (!recipient) return { queued: false, reason: "lead_without_phone" };
 
+  const campaignIds: string[] = automation.campaign_ids?.length ? automation.campaign_ids : automation.campaign_id ? [automation.campaign_id] : [];
+  if (!campaignIds.length) return { queued: false, reason: "automation_without_campaign" };
+
+  const { count: previousJobs } = await supabase.from("jobs").select("id", { count: "exact", head: true }).eq("automation_id", automation.id);
+  const sequence = Number(previousJobs || 0);
+  const campaignId = campaignIds[sequence % campaignIds.length];
+  const senderChoice = await selectSenderForAutomation(supabase, automation);
+  const preferredSenderId = senderChoice.sender?.id || (automation.sender_instance_ids?.[0] || automation.sender_instance_id || null);
+
   const bucket = tenSecondBucket(params.sourceTimestamp);
   const dedupeKey = `${automation.id}|${params.groupExternalId}|${params.identity}|${bucket}`;
-  const now = new Date().toISOString();
+  const nowDate = new Date();
+  const scheduledAt = new Date(nowDate.getTime() + Number(automation.delay_seconds || 0) * 1000).toISOString();
+  const now = nowDate.toISOString();
 
-  const { data: created, error } = await supabase
-    .from("jobs")
-    .insert({
-      campaign_id: automation.campaign_id,
-      lead_id: params.leadId,
-      instance_id: automation.sender_instance_id,
-      group_id: params.groupId,
-      automation_id: automation.id,
-      recipient,
-      dedupe_key: dedupeKey,
-      status: "queued",
-      payload: { source: "group_join", group_external_id: params.groupExternalId },
-      created_at: now,
-      updated_at: now,
-    })
-    .select("id")
-    .single();
+  const { data: created, error } = await supabase.from("jobs").insert({
+    campaign_id: campaignId,
+    lead_id: params.leadId,
+    instance_id: preferredSenderId,
+    group_id: params.groupId,
+    automation_id: automation.id,
+    recipient,
+    dedupe_key: dedupeKey,
+    status: "queued",
+    scheduled_at: scheduledAt,
+    payload: { source: "group_join", group_external_id: params.groupExternalId, rotation_index: sequence },
+    created_at: now,
+    updated_at: now,
+  }).select("id").single();
 
   if (error) {
     if (error.code === "23505") return { queued: false, duplicate: true };
     throw error;
   }
 
+  if (Number(automation.delay_seconds || 0) > 0) return { queued: true, jobId: created.id, scheduledAt };
   const processed = await processJob(created.id);
   return { queued: true, jobId: created.id, processed };
 }
