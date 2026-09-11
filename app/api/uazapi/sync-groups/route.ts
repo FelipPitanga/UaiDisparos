@@ -106,8 +106,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "Instância não encontrada." }, { status: 404 });
     }
 
-    if (!["monitor", "both"].includes(instance.instance_role)) {
-      return NextResponse.json({ ok: false, error: "Essa instância não está marcada como monitoradora." }, { status: 400 });
+    if (instance.instance_role !== "monitor") {
+      return NextResponse.json({ ok: false, error: "Somente instâncias monitoradoras podem sincronizar grupos." }, { status: 400 });
     }
 
     if (instance.status !== "connected") {
