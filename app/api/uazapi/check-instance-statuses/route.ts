@@ -3,15 +3,18 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
+const DISCONNECT_CONFIRMATIONS = 2;
+const MIN_CONFIRMATION_MS = 20_000;
+
 function normalizeStatus(provider: any) {
   const item = Array.isArray(provider) ? provider[0] : provider;
   const instance = item?.instance ?? item ?? {};
-  const rawStatus = String(instance?.status ?? item?.status ?? "disconnected");
-  const status = ["disconnected", "connecting", "connected", "hibernated"].includes(rawStatus)
-    ? rawStatus
-    : "disconnected";
+  const raw = instance?.status ?? item?.status ?? instance?.state ?? item?.state ?? null;
+  const rawStatus = raw == null ? null : String(raw).toLowerCase();
+  const allowed = ["disconnected", "connecting", "connected", "hibernated"];
+  const status = rawStatus && allowed.includes(rawStatus) ? rawStatus : "unknown";
   const phone = instance?.owner ?? item?.owner ?? instance?.phone ?? item?.phone ?? null;
-  return { status, phone: phone ? String(phone).replace(/\D/g, "") : null };
+  return { status, phone: phone ? String(phone).replace(/\D/g, "") : null, rawStatus };
 }
 
 function parseLimits(provider: any) {
@@ -49,7 +52,7 @@ export async function POST() {
     const supabase = getSupabaseAdmin();
     const { data: instances, error } = await supabase
       .from("instances")
-      .select("id,name,status,phone,instance_role,base_url,api_token,send_blocked_until,send_block_code")
+      .select("id,name,status,phone,instance_role,base_url,api_token,send_blocked_until,send_block_code,disconnect_probe_count,disconnect_first_seen_at")
       .not("base_url", "is", null)
       .not("api_token", "is", null);
 
@@ -67,18 +70,60 @@ export async function POST() {
         }
 
         const normalized = normalizeStatus(statusResult.body);
-        const now = new Date().toISOString();
+        const nowDate = new Date();
+        const now = nowDate.toISOString();
         const update: Record<string, any> = {
-          status: normalized.status,
           phone: normalized.phone || instance.phone,
           last_seen_at: now,
           updated_at: now,
         };
 
+        let effectiveStatus = instance.status;
+        let disconnectProbeCount = Number(instance.disconnect_probe_count || 0);
+        let disconnectFirstSeenAt = instance.disconnect_first_seen_at as string | null;
+        let confirmedDisconnect = false;
+
+        if (normalized.status === "connected") {
+          effectiveStatus = "connected";
+          disconnectProbeCount = 0;
+          disconnectFirstSeenAt = null;
+        } else if (normalized.status === "disconnected") {
+          disconnectProbeCount += 1;
+          disconnectFirstSeenAt = disconnectFirstSeenAt || now;
+          const firstSeenMs = new Date(disconnectFirstSeenAt).getTime();
+          const elapsedMs = Number.isFinite(firstSeenMs) ? nowDate.getTime() - firstSeenMs : 0;
+          confirmedDisconnect = disconnectProbeCount >= DISCONNECT_CONFIRMATIONS && elapsedMs >= MIN_CONFIRMATION_MS;
+
+          // Um único retorno "disconnected" da API pode ser transitório. Só mudamos o
+          // estado real depois de duas verificações consecutivas separadas no tempo.
+          if (confirmedDisconnect) effectiveStatus = "disconnected";
+        } else if (normalized.status === "connecting" || normalized.status === "hibernated") {
+          // Não trata connecting/hibernated como desconexão. Se já estava conectado,
+          // preserva o estado até uma confirmação real; se ainda não conectou, exibe o estado atual.
+          if (instance.status !== "connected") effectiveStatus = normalized.status;
+          disconnectProbeCount = 0;
+          disconnectFirstSeenAt = null;
+        } else {
+          // Payload desconhecido nunca deve virar "disconnected" por padrão.
+          results.push({
+            id: instance.id,
+            ok: true,
+            from: instance.status,
+            to: instance.status,
+            providerStatus: normalized.rawStatus,
+            ignored: "unknown_provider_status",
+          });
+          continue;
+        }
+
+        update.status = effectiveStatus;
+        update.disconnect_probe_count = disconnectProbeCount;
+        update.disconnect_first_seen_at = disconnectFirstSeenAt;
+
         let restriction: ReturnType<typeof parseLimits> | null = null;
         let limitsHttp: number | null = null;
 
-        if (normalized.status === "connected" && instance.instance_role === "sender") {
+        if (effectiveStatus === "connected" && instance.instance_role === "sender") {
           try {
             const limitsResult = await getJson(`${baseUrl}/instance/wa_messages_limits`, instance.api_token);
             limitsHttp = limitsResult.response.status;
@@ -91,33 +136,26 @@ export async function POST() {
           } catch {
             // Não derruba o monitor de conexão se o endpoint de limites falhar.
           }
-        } else if (normalized.status !== "connected") {
+        } else if (confirmedDisconnect) {
           update.send_blocked_until = null;
           update.send_block_reason = null;
           update.send_block_code = null;
         }
 
-        await supabase.from("instances").update(update).eq("id", instance.id);
+        const { error: updateError } = await supabase.from("instances").update(update).eq("id", instance.id);
+        if (updateError) throw updateError;
 
-        if (instance.status === "connected" && normalized.status !== "connected") {
-          await supabase.from("notification_outbox").upsert({
-            event_type: "disconnected",
-            event_key: `instance_disconnected:${instance.id}:${Math.floor(Date.now() / 30000)}`,
-            payload: {
-              instance_id: instance.id,
-              name: instance.name,
-              phone: normalized.phone || instance.phone,
-              status: normalized.status,
-            },
-            status: "pending",
-          }, { onConflict: "event_key", ignoreDuplicates: true });
-        }
-
+        // A notificação de desconexão é criada somente pelo trigger do banco quando
+        // o status realmente muda de connected -> disconnected. Assim evitamos
+        // alertas duplicados e falsos positivos por respostas transitórias da UAZAPI.
         results.push({
           id: instance.id,
           ok: true,
           from: instance.status,
-          to: normalized.status,
+          provider: normalized.status,
+          to: effectiveStatus,
+          disconnectProbeCount,
+          confirmedDisconnect,
           restriction: restriction?.blocked ? { code: restriction.code, until: restriction.until } : null,
           limitsHttp,
         });
