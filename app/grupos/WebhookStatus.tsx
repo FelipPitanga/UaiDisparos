@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 type LastEvent = {
   id: number;
@@ -31,10 +31,7 @@ type Props = {
 function dateLabel(value: string | null | undefined) {
   if (!value) return "nenhum evento recebido";
   try {
-    return new Intl.DateTimeFormat("pt-BR", {
-      dateStyle: "short",
-      timeStyle: "medium",
-    }).format(new Date(value));
+    return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "medium" }).format(new Date(value));
   } catch {
     return value;
   }
@@ -47,11 +44,6 @@ export default function WebhookStatus(props: Props) {
   const groupsEventEnabled = props.providerEvents.includes("groups");
   const healthy = props.dbEnabled && props.providerEnabled && urlMatches && groupsEventEnabled && props.endpointReachable && !props.providerError;
 
-  useEffect(() => {
-    const timer = window.setInterval(() => router.refresh(), 4000);
-    return () => window.clearInterval(timer);
-  }, [router]);
-
   async function refresh() {
     setRefreshing(true);
     router.refresh();
@@ -63,7 +55,7 @@ export default function WebhookStatus(props: Props) {
       <div className="row" style={{ alignItems: "flex-start" }}>
         <div>
           <div className="section-title" style={{ marginBottom: 4 }}>Diagnóstico do webhook</div>
-          <div className="muted">{props.monitorName} • atualiza sozinho a cada 4s</div>
+          <div className="muted">{props.monitorName} • acompanha a atualização da tela de grupos</div>
         </div>
         <div className="toolbar">
           <span className={`badge ${healthy ? "ok" : "warn"}`}>{healthy ? "Tudo certo" : "Revisar webhook"}</span>
@@ -72,34 +64,10 @@ export default function WebhookStatus(props: Props) {
       </div>
 
       <div className="grid" style={{ marginTop: 16 }}>
-        <div className="card">
-          <div className="label">Status na UAZAPI</div>
-          <div style={{ marginTop: 8, fontWeight: 800 }}>{props.providerError ? "Erro ao consultar" : props.providerEnabled ? "Ativo" : "Inativo"}</div>
-          <div className="muted" style={{ marginTop: 6 }}>{props.providerError ?? (groupsEventEnabled ? "evento groups habilitado" : "evento groups não encontrado")}</div>
-        </div>
-
-        <div className="card">
-          <div className="label">Endpoint público</div>
-          <div style={{ marginTop: 8, fontWeight: 800 }}>{props.endpointReachable ? "Acessível" : "Indisponível"}</div>
-          <div className="muted" style={{ marginTop: 6 }}>{props.endpointError ?? "tunnel respondeu corretamente"}</div>
-        </div>
-
-        <div className="card">
-          <div className="label">URL configurada</div>
-          <div style={{ marginTop: 8, fontWeight: 800, wordBreak: "break-all" }}>{props.providerUrl ?? "não retornada pela UAZAPI"}</div>
-          <div className="muted" style={{ marginTop: 6 }}>{props.expectedUrl ? (urlMatches ? "bate com a URL atual do sistema" : `esperada: ${props.expectedUrl}`) : "UAZAPI_WEBHOOK_URL não configurada"}</div>
-        </div>
-
-        <div className="card">
-          <div className="label">Último evento recebido</div>
-          <div style={{ marginTop: 8, fontWeight: 800 }}>{props.lastEvent ? props.lastEvent.event_type || "evento sem tipo" : "nenhum"}</div>
-          <div className="muted" style={{ marginTop: 6 }}>{dateLabel(props.lastEvent?.received_at)}</div>
-          {props.lastEvent ? (
-            <div className="muted" style={{ marginTop: 4 }}>
-              #{props.lastEvent.id} • {props.lastEvent.processed ? "processado" : "pendente"}{props.lastEvent.processing_error ? ` • ${props.lastEvent.processing_error}` : ""}
-            </div>
-          ) : null}
-        </div>
+        <div className="card"><div className="label">Status na UAZAPI</div><div style={{ marginTop: 8, fontWeight: 800 }}>{props.providerError ? "Erro ao consultar" : props.providerEnabled ? "Ativo" : "Inativo"}</div><div className="muted" style={{ marginTop: 6 }}>{props.providerError ?? (groupsEventEnabled ? "evento groups habilitado" : "evento groups não encontrado")}</div></div>
+        <div className="card"><div className="label">Endpoint público</div><div style={{ marginTop: 8, fontWeight: 800 }}>{props.endpointReachable ? "Acessível" : "Indisponível"}</div><div className="muted" style={{ marginTop: 6 }}>{props.endpointError ?? "endpoint respondeu corretamente"}</div></div>
+        <div className="card"><div className="label">URL configurada</div><div style={{ marginTop: 8, fontWeight: 800, wordBreak: "break-all" }}>{props.providerUrl ?? "não retornada pela UAZAPI"}</div><div className="muted" style={{ marginTop: 6 }}>{props.expectedUrl ? (urlMatches ? "bate com a URL atual do sistema" : `esperada: ${props.expectedUrl}`) : "UAZAPI_WEBHOOK_URL não configurada"}</div></div>
+        <div className="card"><div className="label">Último evento recebido</div><div style={{ marginTop: 8, fontWeight: 800 }}>{props.lastEvent ? props.lastEvent.event_type || "evento sem tipo" : "nenhum"}</div><div className="muted" style={{ marginTop: 6 }}>{dateLabel(props.lastEvent?.received_at)}</div>{props.lastEvent ? <div className="muted" style={{ marginTop: 4 }}>#{props.lastEvent.id} • {props.lastEvent.processed ? "processado" : "pendente"}{props.lastEvent.processing_error ? ` • ${props.lastEvent.processing_error}` : ""}</div> : null}</div>
       </div>
     </div>
   );
