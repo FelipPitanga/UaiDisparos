@@ -41,7 +41,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         .from("jobs")
         .update({ status: "paused", error_message: "Automação pausada", updated_at: now })
         .eq("automation_id", params.id)
-        .eq("status", "queued");
+        .in("status", ["queued", "processing"]);
+    } else {
+      await supabase
+        .from("jobs")
+        .update({ status: "queued", error_message: null, processed_at: null, updated_at: now })
+        .eq("automation_id", params.id)
+        .eq("status", "paused");
     }
 
     return NextResponse.json({ ok: true, automation: data });
