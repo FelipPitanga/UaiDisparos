@@ -7,9 +7,7 @@ type Campaign = { id: string; name: string; text_content: string | null };
 type Sender = { id: string; name: string; status: string; phone: string | null };
 type Group = { id: string; ids?: string[]; name: string | null; external_id: string };
 type Lead = { id: string; phone: string | null; name: string | null; group_id: string | null; consent_status: string };
-type Broadcast = { id: string; name: string; status: string; campaign_ids: string[]; sender_instance_ids: string[]; source_group_ids: string[]; start_delay_seconds: number; send_interval_seconds: number; daily_limit_per_sender: number };
-type Recipient = { id: string; phone: string; status: string; error_message: string | null; processed_at: string | null; scheduled_at: string | null; broadcast_name?: string; campaign_name?: string; sender_name?: string };
-type Props = { campaigns: Campaign[]; senders: Sender[]; groups: Group[]; authorizedLeads: Lead[]; broadcasts: Broadcast[]; recipients: Recipient[] };
+type Props = { campaigns: Campaign[]; senders: Sender[]; groups: Group[]; authorizedLeads: Lead[] };
 
 function toggle(current: string[], id: string, max?: number) {
   if (current.includes(id)) return current.filter((x) => x !== id);
@@ -34,25 +32,8 @@ function parsePhoneText(text: string) {
   return { valid: [...valid], invalid };
 }
 
-function statusClass(status: string) {
-  if (status === "sent") return "ok";
-  if (status === "failed" || status === "skipped") return "bad";
-  if (status === "queued" || status === "paused") return "warn";
-  return "";
-}
-
-function statusLabel(status: string) {
-  if (status === "sent") return "Enviado";
-  if (status === "failed") return "Erro";
-  if (status === "processing") return "Processando";
-  if (status === "paused") return "Pausado";
-  if (status === "skipped") return "Ignorado";
-  return "Aguardando";
-}
-
-export default function PrivateBroadcastManager({ campaigns, senders, groups, authorizedLeads, broadcasts: initialBroadcasts, recipients }: Props) {
+export default function PrivateBroadcastManager({ campaigns, senders, groups, authorizedLeads }: Props) {
   const router = useRouter();
-  const [broadcasts, setBroadcasts] = useState(initialBroadcasts);
   const [name, setName] = useState("");
   const [campaignIds, setCampaignIds] = useState<string[]>(campaigns[0]?.id ? [campaigns[0].id] : []);
   const [senderIds, setSenderIds] = useState<string[]>(senders[0]?.id ? [senders[0].id] : []);
@@ -67,7 +48,6 @@ export default function PrivateBroadcastManager({ campaigns, senders, groups, au
   const [authorized, setAuthorized] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [actionBusyId, setActionBusyId] = useState<string | null>(null);
 
   const selectedSourceGroupIds = useMemo(() => {
     const ids = new Set<string>();
@@ -133,6 +113,7 @@ export default function PrivateBroadcastManager({ campaigns, senders, groups, au
       if (!campaignIds.length) throw new Error("Selecione ao menos uma campanha.");
       if (!senderIds.length) throw new Error("Selecione ao menos uma conta.");
       if (!totalRecipients) throw new Error("Adicione um TXT válido ou escolha grupos com leads opt-in.");
+
       const response = await fetch("/api/private-broadcasts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -150,8 +131,8 @@ export default function PrivateBroadcastManager({ campaigns, senders, groups, au
       });
       const data = await response.json();
       if (!response.ok || !data?.ok) throw new Error(data?.error || "Falha ao criar disparo privado.");
-      setBroadcasts((current) => [data.broadcast, ...current]);
-      setMessage(`Disparo criado com ${data.recipients} destinatário(s). A fila roda na nuvem.`);
+
+      setMessage(`Disparo criado com ${data.recipients} destinatário(s). Acompanhe tudo em Operações.`);
       setName("");
       setImportedNumbers([]);
       setInvalidCount(0);
@@ -164,47 +145,15 @@ export default function PrivateBroadcastManager({ campaigns, senders, groups, au
     }
   }
 
-  async function toggleBroadcast(item: Broadcast) {
-    setActionBusyId(item.id);
-    try {
-      const next = item.status === "active" ? "paused" : "active";
-      const response = await fetch(`/api/private-broadcasts/${item.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: next }) });
-      const data = await response.json();
-      if (!response.ok || !data?.ok) throw new Error(data?.error || "Falha ao atualizar.");
-      setBroadcasts((current) => current.map((x) => x.id === item.id ? data.broadcast : x));
-      router.refresh();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Erro ao atualizar disparo.");
-    } finally {
-      setActionBusyId(null);
-    }
-  }
-
-  async function deleteBroadcast(item: Broadcast) {
-    if (!window.confirm(`Excluir o disparo \"${item.name}\"?`)) return;
-    setActionBusyId(item.id);
-    try {
-      const response = await fetch(`/api/private-broadcasts/${item.id}`, { method: "DELETE" });
-      const data = await response.json();
-      if (!response.ok || !data?.ok) throw new Error(data?.error || "Falha ao excluir.");
-      setBroadcasts((current) => current.filter((x) => x.id !== item.id));
-      router.refresh();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Erro ao excluir disparo.");
-    } finally {
-      setActionBusyId(null);
-    }
-  }
-
   return (
     <>
       <div className="topbar">
-        <div><h1>Disparo privado</h1><div className="subtitle">Listas autorizadas + campanhas em rotação + contas disparadoras + fila em nuvem.</div></div>
+        <div><h1>Disparo privado</h1><div className="subtitle">Crie o disparo aqui. Controle, fila e histórico ficam 100% na aba Operações.</div></div>
       </div>
 
       <div className="card automation-card">
         <div className="section-title">Novo disparo privado</div>
-        <div className="muted" style={{ marginBottom: 14 }}>Importe somente contatos que autorizaram receber mensagens. Leads de grupos só entram aqui quando estiverem marcados como opt-in.</div>
+        <div className="muted" style={{ marginBottom: 14 }}>Importe somente contatos autorizados. Depois de iniciar, acompanhe e controle o disparo em Operações.</div>
 
         <div className="field modal-field-gap"><label>Nome do disparo</label><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Lista VIP Setembro" /></div>
 
@@ -213,13 +162,7 @@ export default function PrivateBroadcastManager({ campaigns, senders, groups, au
           <div className="field">
             <label>Importar números</label>
             <input className="input" type="file" accept=".txt,text/plain" onChange={(e) => onTxt(e.target.files?.[0])} />
-            <textarea
-              className="input"
-              style={{ minHeight: 150, marginTop: 10, resize: "vertical" }}
-              value={pastedText}
-              onChange={(e) => setPastedText(e.target.value)}
-              placeholder={"Ou cole aqui o TXT pronto, um número por linha:\n5562999999999\n5562988888888"}
-            />
+            <textarea className="input" style={{ minHeight: 150, marginTop: 10, resize: "vertical" }} value={pastedText} onChange={(e) => setPastedText(e.target.value)} placeholder={"Ou cole aqui o TXT pronto, um número por linha:\n5562999999999\n5562988888888"} />
             <div className="row" style={{ marginTop: 8 }}>
               <div className="muted">Válidos carregados: {importedNumbers.length}{invalidCount ? ` • inválidos ignorados: ${invalidCount}` : ""}</div>
               <button type="button" className="btn secondary" onClick={usePastedText} disabled={!pastedText.trim()}>Adicionar números colados</button>
@@ -254,10 +197,7 @@ export default function PrivateBroadcastManager({ campaigns, senders, groups, au
                   return (
                     <label className={`selector-card ${checked ? "selected" : ""}`} key={group.external_id} style={{ minHeight: 0 }}>
                       <input type="checkbox" checked={checked} onChange={() => setSelectedGroupKeys((current) => toggle(current, group.external_id))} />
-                      <span>
-                        <strong>{group.name || group.external_id}</strong>
-                        <small>{count} lead(s) opt-in disponível(is)</small>
-                      </span>
+                      <span><strong>{group.name || group.external_id}</strong><small>{count} lead(s) opt-in disponível(is)</small></span>
                     </label>
                   );
                 })}
@@ -297,23 +237,6 @@ export default function PrivateBroadcastManager({ campaigns, senders, groups, au
         <label className="check-row modal-field-gap"><input type="checkbox" checked={authorized} onChange={(e) => setAuthorized(e.target.checked)} /><span><strong>Contatos autorizados</strong><small>Confirmo que os números importados e selecionados deram consentimento para receber mensagens privadas desta empresa.</small></span></label>
         {message ? <div className="subtitle" style={{ marginTop: 14 }}>{message}</div> : null}
         <button className="btn modal-field-gap" onClick={createBroadcast} disabled={busy || !totalRecipients || !campaignIds.length || !senderIds.length}>{busy ? "Criando..." : "Criar e iniciar disparo"}</button>
-      </div>
-
-      <div className="section" style={{ marginTop: 26 }}>
-        <div className="section-title">Disparos privados</div>
-        <div className="automation-list">
-          {broadcasts.map((item) => <div className="card automation-row" key={item.id}><div className="automation-main"><div><div className="instance-name">{item.name}</div><div className="muted">{item.campaign_ids?.length || 0} campanha(s) • {item.sender_instance_ids?.length || 0} conta(s) • intervalo {item.send_interval_seconds}s • limite {item.daily_limit_per_sender}/dia</div></div><span className={`badge ${item.status === "active" ? "ok" : "warn"}`}>{item.status === "active" ? "Ativo" : "Pausado"}</span></div><div className="automation-actions"><button className="btn secondary" onClick={() => toggleBroadcast(item)} disabled={actionBusyId === item.id}>{item.status === "active" ? "Pausar" : "Retomar"}</button><button className="btn danger-btn" onClick={() => deleteBroadcast(item)} disabled={actionBusyId === item.id}>Excluir</button></div></div>)}
-          {!broadcasts.length ? <div className="card empty-state">Nenhum disparo privado criado.</div> : null}
-        </div>
-      </div>
-
-      <div className="section" style={{ marginTop: 26 }}>
-        <div className="section-title">Fila e histórico ao vivo</div>
-        <div className="muted">Atualiza a cada 2 segundos enquanto a página está aberta. O processamento continua na nuvem com a página fechada.</div>
-        <div className="table-wrap" style={{ marginTop: 12 }}><table><thead><tr><th>Número</th><th>Disparo</th><th>Campanha</th><th>Conta</th><th>Status</th><th>Detalhe</th></tr></thead><tbody>
-          {recipients.map((row) => <tr key={row.id}><td>+{row.phone}</td><td>{row.broadcast_name || "—"}</td><td>{row.campaign_name || "—"}</td><td>{row.sender_name || "—"}</td><td><span className={`badge ${statusClass(row.status)}`}>{statusLabel(row.status)}</span></td><td className="muted">{row.error_message || (row.processed_at ? "Concluído" : row.scheduled_at ? `Agendado ${new Date(row.scheduled_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "Na fila")}</td></tr>)}
-          {!recipients.length ? <tr><td colSpan={6}>Nenhum envio privado ainda.</td></tr> : null}
-        </tbody></table></div>
       </div>
     </>
   );
