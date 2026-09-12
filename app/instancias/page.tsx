@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import InstancesManager from "./InstancesManager";
 import InstanceHealthPanel from "./InstanceHealthPanel";
+import LiveRefresh from "../disparos/LiveRefresh";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,9 @@ export default async function Page() {
 
   return (
     <>
+      <div className="row" style={{ justifyContent: "flex-end", marginBottom: 10 }}>
+        <LiveRefresh intervalMs={1000} />
+      </div>
       <InstanceHealthPanel instances={instances as any} />
       <InstancesManager initialInstances={instances as any} />
     </>
