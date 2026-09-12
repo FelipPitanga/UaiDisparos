@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import LiveRefresh from "../disparos/LiveRefresh";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +59,9 @@ export default async function Page() {
 
   return (
     <>
+      <div className="row" style={{ justifyContent: "flex-end", marginBottom: 10 }}>
+        <LiveRefresh intervalMs={1000} />
+      </div>
       <div className="topbar">
         <div>
           <h1>Leads</h1>
@@ -72,21 +76,13 @@ export default async function Page() {
         <div className="card"><div className="label">Autorizados</div><div className="metric">{authorized}</div></div>
       </div>
 
-      {error ? (
-        <div className="alert-error">Erro ao carregar leads: {error.message}</div>
-      ) : null}
+      {error ? <div className="alert-error">Erro ao carregar leads: {error.message}</div> : null}
 
       <div className="table-wrap" style={{ marginTop: 18 }}>
         <table>
           <thead>
             <tr>
-              <th>Telefone</th>
-              <th>LID / identificador</th>
-              <th>Grupo</th>
-              <th>Monitor de origem</th>
-              <th>Capturas</th>
-              <th>Consentimento</th>
-              <th>Última entrada</th>
+              <th>Telefone</th><th>LID / identificador</th><th>Grupo</th><th>Monitor de origem</th><th>Capturas</th><th>Consentimento</th><th>Última entrada</th>
             </tr>
           </thead>
           <tbody>
@@ -96,24 +92,15 @@ export default async function Page() {
                 <tr key={lead.id}>
                   <td>{lead.phone ? `+${lead.phone}` : "—"}</td>
                   <td>{lead.lid || lead.external_participant_id || "—"}</td>
-                  <td>
-                    <div style={{ fontWeight: 700 }}>{group?.name || "Grupo não localizado"}</div>
-                    <div className="muted" style={{ marginTop: 3 }}>{lead.source_group_external_id || group?.external_id || "—"}</div>
-                  </td>
+                  <td><div style={{ fontWeight: 700 }}>{group?.name || "Grupo não localizado"}</div><div className="muted" style={{ marginTop: 3 }}>{lead.source_group_external_id || group?.external_id || "—"}</div></td>
                   <td>{lead.instance_id ? instanceMap.get(lead.instance_id) || "—" : "—"}</td>
-                  <td>
-                    <span className={`badge ${Number(lead.capture_count || 1) > 1 ? "warn" : ""}`}>
-                      {lead.capture_count || 1}x
-                    </span>
-                  </td>
+                  <td><span className={`badge ${Number(lead.capture_count || 1) > 1 ? "warn" : ""}`}>{lead.capture_count || 1}x</span></td>
                   <td><span className={`badge ${consentClass(lead.consent_status)}`}>{consentLabel(lead.consent_status)}</span></td>
                   <td>{dateLabel(lead.last_seen_at)}</td>
                 </tr>
               );
             })}
-            {!leads?.length ? (
-              <tr><td colSpan={7}>Nenhum lead capturado ainda.</td></tr>
-            ) : null}
+            {!leads?.length ? <tr><td colSpan={7}>Nenhum lead capturado ainda.</td></tr> : null}
           </tbody>
         </table>
       </div>
