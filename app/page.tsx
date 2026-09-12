@@ -45,73 +45,66 @@ function buildLast7Days() {
 export default async function Page() {
   const supabase = getSupabaseAdmin();
   const days = buildLast7Days();
-  const validDayKeys = new Set(days.map((day) => day.key));
+  const dayKeys = new Set(days.map((d) => d.key));
   const queryCutoff = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [
-    groupSentRows,
-    privateSentRows,
-    groupFailedRows,
-    privateFailedRows,
-    activeGroupOps,
-    activePrivateOps,
-    eventsResult,
-  ] = await Promise.all([
+  const [groupSentRows, privateSentRows, groupFailedRows, privateFailedRows, activeGroupOps, activePrivateOps] = await Promise.all([
     supabase.from("jobs").select("processed_at").eq("status", "sent").gte("processed_at", queryCutoff),
     supabase.from("private_broadcast_recipients").select("processed_at").eq("status", "sent").gte("processed_at", queryCutoff),
     supabase.from("jobs").select("updated_at").eq("status", "failed").gte("updated_at", queryCutoff),
     supabase.from("private_broadcast_recipients").select("updated_at").eq("status", "failed").gte("updated_at", queryCutoff),
     count("group_automations", q => q.eq("active", true)),
     count("private_broadcasts", q => q.eq("status", "active")),
-    supabase.from("webhook_events").select("id,event_type,processed,processing_error,received_at,group_external_id").order("received_at", { ascending:false }).limit(6),
   ]);
 
   const sentPerDay = new Map(days.map((day) => [day.key, 0]));
   for (const row of [...(groupSentRows.data ?? []), ...(privateSentRows.data ?? [])]) {
     if (!row.processed_at) continue;
     const key = dayKey(row.processed_at);
-    if (validDayKeys.has(key)) sentPerDay.set(key, (sentPerDay.get(key) ?? 0) + 1);
+    if (dayKeys.has(key)) sentPerDay.set(key, (sentPerDay.get(key) ?? 0) + 1);
   }
 
-  const failedRows = [...(groupFailedRows.data ?? []), ...(privateFailedRows.data ?? [])];
-  const failedLast7 = failedRows.filter((row: any) => row.updated_at && validDayKeys.has(dayKey(row.updated_at))).length;
-  const chartValues = days.map((day) => sentPerDay.get(day.key) ?? 0);
-  const sentLast7 = chartValues.reduce((sum, value) => sum + value, 0);
+  const sentValues = days.map((day) => sentPerDay.get(day.key) ?? 0);
+  const sentLast7 = sentValues.reduce((sum, value) => sum + value, 0);
+  const failedLast7 = [...(groupFailedRows.data ?? []), ...(privateFailedRows.data ?? [])]
+    .filter((row: any) => row.updated_at && dayKeys.has(dayKey(row.updated_at))).length;
+  const totalProcessed = sentLast7 + failedLast7;
+  const successRate = totalProcessed ? Math.round((sentLast7 / totalProcessed) * 1000) / 10 : 100;
   const activeOps = activeGroupOps + activePrivateOps;
-  const processed = sentLast7 + failedLast7;
-  const successRate = processed ? Math.round((sentLast7 / processed) * 1000) / 10 : 100;
-  const latestDayCount = chartValues.at(-1) ?? 0;
-  const chartData = days.map((day, index) => ({ ...day, value: chartValues[index] }));
+  const chartData = days.map((day, index) => ({ ...day, value: sentValues[index] }));
 
   return <>
-    <div className="row" style={{justifyContent:"flex-end",marginBottom:10}}><LiveRefresh intervalMs={1000}/></div>
+    <LiveRefresh intervalMs={1000} />
 
-    <section className="overview-shell">
-      <div className="overview-head">
+    <section className="uai-overview-panel">
+      <div className="uai-overview-topbar">
         <div>
           <h1>Visão geral</h1>
-          <div className="subtitle">Acompanhe o ritmo da operação UAI Disparos em tempo real.</div>
         </div>
-        <div className="overview-period">▣ Últimos 7 dias⌄</div>
+        <div className="uai-overview-period">▣ Últimos 7 dias⌄</div>
       </div>
 
-      <div className="overview-kpis">
-        <div className="overview-kpi"><div className="label">Mensagens enviadas</div><div className="metric">{sentLast7.toLocaleString("pt-BR")}</div><div className="overview-trend">↑ últimos 7 dias</div></div>
-        <div className="overview-kpi"><div className="label">Taxa de sucesso</div><div className="metric">{successRate}%</div><div className="overview-trend">↑ envios concluídos</div></div>
-        <div className="overview-kpi"><div className="label">Operações ativas</div><div className="metric">{activeOps}</div><div className="overview-trend">↑ grupo + privado</div></div>
+      <div className="uai-overview-kpis">
+        <div className="uai-overview-kpi">
+          <div className="uai-kpi-label">Mensagens enviadas</div>
+          <div className="uai-kpi-value">{sentLast7.toLocaleString("pt-BR")}</div>
+          <div className="uai-kpi-trend">↑ {sentLast7 > 0 ? "ao vivo" : "aguardando dados"}</div>
+        </div>
+
+        <div className="uai-overview-kpi">
+          <div className="uai-kpi-label">Taxa de entrega</div>
+          <div className="uai-kpi-value">{successRate.toLocaleString("pt-BR")}%</div>
+          <div className="uai-kpi-trend">↑ envios concluídos</div>
+        </div>
+
+        <div className="uai-overview-kpi">
+          <div className="uai-kpi-label">Operações ativas</div>
+          <div className="uai-kpi-value">{activeOps}</div>
+          <div className="uai-kpi-trend">↑ grupo + privado</div>
+        </div>
       </div>
 
-      <LiveOverviewChart data={chartData} latestValue={latestDayCount} />
+      <LiveOverviewChart data={chartData} />
     </section>
-
-    <div className="section">
-      <div className="section-title">Atividade recente</div>
-      <div className="table-wrap">
-        <table><thead><tr><th>Evento</th><th>Origem</th><th>Status</th><th>Horário</th></tr></thead><tbody>
-          {(eventsResult.data ?? []).map((event:any)=><tr key={event.id}><td>{event.event_type || "Webhook"}</td><td>{event.group_external_id || "UAZAPI"}</td><td><span className="status-chip"><span className={`status-dot ${event.processing_error ? "failed" : event.processed ? "sent" : "processing"}`}/>{event.processing_error ? "Falhou" : event.processed ? "Enviado" : "Em processamento"}</span></td><td>{new Date(event.received_at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit",timeZone:TIME_ZONE})}</td></tr>)}
-          {!eventsResult.data?.length ? <tr><td colSpan={4}>Nenhum evento recente.</td></tr> : null}
-        </tbody></table>
-      </div>
-    </div>
   </>;
 }
