@@ -1,6 +1,6 @@
 import "./globals.css";
 import Link from "next/link";
-import { Activity, LayoutDashboard, Smartphone, Users, UserRound, Megaphone, Send, MessageCircle, Bell } from "lucide-react";
+import { Activity, LayoutDashboard, Smartphone, Users, UserRound, Megaphone, Send, MessageCircle, Bell, RadioTower } from "lucide-react";
 
 export const metadata = {
   title: "UaiDisparos",
@@ -9,6 +9,7 @@ export const metadata = {
 
 const nav = [
   ["/", "Dashboard", LayoutDashboard],
+  ["/operacoes", "Operações", RadioTower],
   ["/instancias", "Instâncias", Smartphone],
   ["/grupos", "Grupos", Users],
   ["/leads", "Leads", UserRound],
