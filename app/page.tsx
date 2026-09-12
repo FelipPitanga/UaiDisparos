@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import LiveRefresh from "./disparos/LiveRefresh";
+import LiveOverviewChart from "./components/LiveOverviewChart";
 
 export const dynamic = "force-dynamic";
 
@@ -41,24 +42,6 @@ function buildLast7Days() {
   return days;
 }
 
-function buildChartPath(values: number[]) {
-  const width = 760;
-  const height = 190;
-  const top = 18;
-  const bottom = 170;
-  const max = Math.max(1, ...values);
-  const points = values.map((value, index) => {
-    const x = values.length === 1 ? width / 2 : (index / (values.length - 1)) * width;
-    const y = bottom - (value / max) * (bottom - top);
-    return { x, y };
-  });
-
-  if (!points.length) return { line: "", area: "", points: [] as { x: number; y: number }[] };
-  const line = points.map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
-  const area = `${line} L${width} ${height} L0 ${height} Z`;
-  return { line, area, points };
-}
-
 export default async function Page() {
   const supabase = getSupabaseAdmin();
   const days = buildLast7Days();
@@ -97,8 +80,8 @@ export default async function Page() {
   const activeOps = activeGroupOps + activePrivateOps;
   const processed = sentLast7 + failedLast7;
   const successRate = processed ? Math.round((sentLast7 / processed) * 1000) / 10 : 100;
-  const chart = buildChartPath(chartValues);
   const latestDayCount = chartValues.at(-1) ?? 0;
+  const chartData = days.map((day, index) => ({ ...day, value: chartValues[index] }));
 
   return <>
     <div className="row" style={{justifyContent:"flex-end",marginBottom:10}}><LiveRefresh intervalMs={1000}/></div>
@@ -118,20 +101,7 @@ export default async function Page() {
         <div className="overview-kpi"><div className="label">Operações ativas</div><div className="metric">{activeOps}</div><div className="overview-trend">↑ grupo + privado</div></div>
       </div>
 
-      <div className="overview-chart">
-        <div className="row" style={{alignItems:"center"}}>
-          <div className="label" style={{color:"#D7D0C5"}}><span className="overview-live-dot"/>Envios reais • atualizando ao vivo</div>
-          <div className="muted">Hoje: <strong style={{color:"var(--text)"}}>{latestDayCount}</strong></div>
-        </div>
-        <svg viewBox="0 0 760 190" preserveAspectRatio="none" aria-label="Envios reais dos últimos sete dias">
-          <defs><linearGradient id="overviewFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#E7B34E" stopOpacity=".25"/><stop offset="1" stopColor="#E7B34E" stopOpacity="0"/></linearGradient></defs>
-          <line className="chart-grid" x1="0" y1="45" x2="760" y2="45"/><line className="chart-grid" x1="0" y1="95" x2="760" y2="95"/><line className="chart-grid" x1="0" y1="145" x2="760" y2="145"/>
-          <path className="chart-area" d={chart.area}/>
-          <path className="chart-line" d={chart.line}/>
-          {chart.points.map((point, index) => <g key={days[index].key}><circle cx={point.x} cy={point.y} r="4.5" fill="#E7B34E"/><circle cx={point.x} cy={point.y} r="9" fill="#E7B34E" opacity=".10"/></g>)}
-        </svg>
-        <div className="overview-chart-labels">{days.map((day, index) => <span key={day.key} title={`${chartValues[index]} enviados`}>{day.label}<small style={{display:"block",marginTop:4,color:"#D9C9A7"}}>{chartValues[index]}</small></span>)}</div>
-      </div>
+      <LiveOverviewChart data={chartData} latestValue={latestDayCount} />
     </section>
 
     <div className="section">
