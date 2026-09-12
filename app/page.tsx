@@ -1,4 +1,4 @@
-import { Smartphone, Users, UserRound, Megaphone, Send, TriangleAlert } from "lucide-react";
+import { Smartphone, Users, UserRound, Megaphone, Send, TriangleAlert, RadioTower, Zap } from "lucide-react";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import LiveRefresh from "./disparos/LiveRefresh";
 
@@ -19,13 +19,28 @@ async function getDashboardData() {
     today.setHours(0, 0, 0, 0);
     const todayIso = today.toISOString();
 
-    const [connectedInstances, monitoredGroups, leads, activeCampaigns, processedToday, errorsToday] = await Promise.all([
+    const [
+      connectedInstances,
+      monitoredGroups,
+      leads,
+      activeCampaigns,
+      groupSent,
+      privateSent,
+      groupErrors,
+      privateErrors,
+      activeGroupOps,
+      activePrivateOps,
+    ] = await Promise.all([
       getCount("instances", (q) => q.eq("status", "connected")),
       getCount("groups", (q) => q.eq("monitoring_enabled", true)),
       getCount("leads"),
       getCount("campaigns", (q) => q.eq("status", "active")),
       getCount("jobs", (q) => q.eq("status", "sent").gte("processed_at", todayIso)),
+      getCount("private_broadcast_recipients", (q) => q.eq("status", "sent").gte("processed_at", todayIso)),
       getCount("jobs", (q) => q.eq("status", "failed").gte("updated_at", todayIso)),
+      getCount("private_broadcast_recipients", (q) => q.eq("status", "failed").gte("updated_at", todayIso)),
+      getCount("group_automations", (q) => q.eq("active", true)),
+      getCount("private_broadcasts", (q) => q.eq("status", "active")),
     ]);
 
     const supabase = getSupabaseAdmin();
@@ -39,13 +54,15 @@ async function getDashboardData() {
 
     return {
       ok: true as const,
+      processedToday: groupSent + privateSent,
+      activeOperations: activeGroupOps + activePrivateOps,
       metrics: [
-        ["Instâncias conectadas", String(connectedInstances), Smartphone],
-        ["Grupos monitorados", String(monitoredGroups), Users],
-        ["Leads capturados", leads.toLocaleString("pt-BR"), UserRound],
-        ["Campanhas ativas", String(activeCampaigns), Megaphone],
-        ["Processados hoje", String(processedToday), Send],
-        ["Erros hoje", String(errorsToday), TriangleAlert],
+        ["Instâncias conectadas", String(connectedInstances), Smartphone, "rede online"],
+        ["Grupos monitorados", String(monitoredGroups), Users, "captura ativa"],
+        ["Leads capturados", leads.toLocaleString("pt-BR"), UserRound, "base acumulada"],
+        ["Campanhas ativas", String(activeCampaigns), Megaphone, "prontas para rodar"],
+        ["Processados hoje", String(groupSent + privateSent), Send, "grupo + privado"],
+        ["Erros hoje", String(groupErrors + privateErrors), TriangleAlert, "requer atenção"],
       ],
       events: events ?? [],
     };
@@ -53,13 +70,15 @@ async function getDashboardData() {
     return {
       ok: false as const,
       error: error?.message || "Falha ao consultar o Supabase",
+      processedToday: 0,
+      activeOperations: 0,
       metrics: [
-        ["Instâncias conectadas", "—", Smartphone],
-        ["Grupos monitorados", "—", Users],
-        ["Leads capturados", "—", UserRound],
-        ["Campanhas ativas", "—", Megaphone],
-        ["Processados hoje", "—", Send],
-        ["Erros hoje", "—", TriangleAlert],
+        ["Instâncias conectadas", "—", Smartphone, "indisponível"],
+        ["Grupos monitorados", "—", Users, "indisponível"],
+        ["Leads capturados", "—", UserRound, "indisponível"],
+        ["Campanhas ativas", "—", Megaphone, "indisponível"],
+        ["Processados hoje", "—", Send, "indisponível"],
+        ["Erros hoje", "—", TriangleAlert, "indisponível"],
       ],
       events: [],
     };
@@ -76,6 +95,24 @@ function relativeTime(dateString: string) {
   return new Date(dateString).toLocaleString("pt-BR");
 }
 
+function HeroMark() {
+  return (
+    <svg viewBox="0 0 48 48" aria-hidden="true">
+      <defs>
+        <linearGradient id="heroGold" x1="5" y1="5" x2="42" y2="43">
+          <stop stopColor="#f5cf80" />
+          <stop offset=".58" stopColor="#e7b34e" />
+          <stop offset="1" stopColor="#c46a3f" />
+        </linearGradient>
+      </defs>
+      <path d="M7 15.8 41.5 5.9 27.8 41 21.5 27.2 7 15.8Z" fill="url(#heroGold)" />
+      <path d="m14.5 17.1 20.7-6.3-14.7 12.9-6-6.6Z" fill="#f7f4ed" fillOpacity=".9" />
+      <path d="m21.2 26 12.5-10.9-8.4 20.3-4.1-9.4Z" fill="#2e5d3a" />
+      <path d="m7.2 30.5 10.5-3.8 4.1 8.8-5.6 6.6-9-11.6Z" fill="#e7b34e" />
+    </svg>
+  );
+}
+
 export default async function Page() {
   const data = await getDashboardData();
 
@@ -83,41 +120,62 @@ export default async function Page() {
     <div className="row" style={{ justifyContent: "flex-end", marginBottom: 10 }}>
       <LiveRefresh intervalMs={1000} />
     </div>
-    <div className="topbar">
-      <div>
-        <h1>Dashboard</h1>
-        <div className="subtitle">Visão geral da operação do UaiDisparos.</div>
-      </div>
-      <span className={`badge ${data.ok ? "ok" : "bad"}`}>
-        ● {data.ok ? "Supabase conectado" : "Supabase desconectado"}
-      </span>
-    </div>
 
-    {!data.ok && (
-      <div className="section">
-        <div className="card">
-          <div className="label">Conexão com banco</div>
-          <div style={{ marginTop: 10 }}>
-            Não foi possível consultar o Supabase: <strong>{data.error}</strong>
-          </div>
-          <div className="subtitle" style={{ marginTop: 8 }}>
-            Configure SUPABASE_SECRET_KEY ou SUPABASE_SERVICE_ROLE_KEY no .env.local e reinicie o Next.js.
-          </div>
+    <section className="brand-hero">
+      <div className="brand-hero-copy">
+        <div className="brand-kicker">UAI DISPAROS • CENTRO-OESTE</div>
+        <h2>Disparo certo.<br/>Escala real.</h2>
+        <p>Controle sua operação em tempo real, conecte grupos, campanhas e contas e acompanhe cada envio com a identidade do Cerrado.</p>
+        <div className="hero-pills">
+          <span><RadioTower size={12} /> {data.activeOperations} operações ativas</span>
+          <span><Zap size={12} /> {data.processedToday} processados hoje</span>
+          <span>{data.ok ? "● infraestrutura online" : "● revisar infraestrutura"}</span>
         </div>
       </div>
-    )}
+      <div className="hero-visual">
+        <div className="hero-orbit"><HeroMark /></div>
+      </div>
+    </section>
 
-    <div className="grid">
-      {data.metrics.map(([label, value, Icon]: any) => (
+    {!data.ok ? (
+      <div className="alert-error">Não foi possível consultar o Supabase: <strong>{data.error}</strong></div>
+    ) : null}
+
+    <div className="grid" style={{ marginTop: 18 }}>
+      {data.metrics.map(([label, value, Icon, hint]: any) => (
         <div className="card" key={label}>
+          <span className="stat-accent" />
           <div className="row"><div className="label">{label}</div><div className="kpi-icon"><Icon size={18}/></div></div>
           <div className="metric">{value}</div>
+          <div className="trend">{hint}</div>
         </div>
       ))}
     </div>
 
+    <div className="section" style={{ display: "grid", gridTemplateColumns: "minmax(0,1.15fr) minmax(340px,.85fr)", gap: 14 }}>
+      <div className="card dashboard-chart">
+        <div className="row"><div><div className="section-title" style={{ marginBottom: 4 }}>Ritmo da operação</div><div className="muted">Visão visual da cadência operacional</div></div><span className="badge ok">crescimento consistente</span></div>
+        <svg viewBox="0 0 760 160" preserveAspectRatio="none" aria-hidden="true">
+          <defs><linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#e7b34e" stopOpacity=".24"/><stop offset="1" stopColor="#e7b34e" stopOpacity="0"/></linearGradient></defs>
+          <line className="chart-grid-line" x1="0" y1="35" x2="760" y2="35"/><line className="chart-grid-line" x1="0" y1="80" x2="760" y2="80"/><line className="chart-grid-line" x1="0" y1="125" x2="760" y2="125"/>
+          <path className="chart-area" d="M0 128 C80 118 115 93 180 99 S290 120 350 80 S455 58 520 66 S630 43 760 24 L760 160 L0 160 Z" />
+          <path className="chart-line" d="M0 128 C80 118 115 93 180 99 S290 120 350 80 S455 58 520 66 S630 43 760 24" />
+        </svg>
+        <div className="chart-labels"><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span><span>Dom</span></div>
+      </div>
+
+      <div className="card">
+        <div className="row"><div><div className="section-title" style={{ marginBottom: 4 }}>Pulso do sistema</div><div className="muted">Sincronização contínua</div></div><span className={`badge ${data.ok ? "ok" : "bad"}`}>{data.ok ? "Online" : "Offline"}</span></div>
+        <div style={{ marginTop: 18, display: "grid", gap: 11 }}>
+          <div className="selector-card selected"><span><strong>Webhook de grupos</strong><small>Captura de novos leads em tempo real</small></span><span className="badge ok">ativo</span></div>
+          <div className="selector-card selected"><span><strong>Fila em nuvem</strong><small>Processamento independente do navegador</small></span><span className="badge ok">ativo</span></div>
+          <div className="selector-card selected"><span><strong>Monitoramento de contas</strong><small>Status e restrições observados continuamente</small></span><span className="badge ok">ativo</span></div>
+        </div>
+      </div>
+    </div>
+
     <div className="section">
-      <div className="section-title">Atividade recente</div>
+      <div className="row" style={{ marginBottom: 12 }}><div><div className="section-title" style={{ marginBottom: 4 }}>Atividade recente</div><div className="muted">Eventos mais novos recebidos pela operação</div></div><span className="badge">ao vivo</span></div>
       <div className="table-wrap">
         <table>
           <thead><tr><th>Evento</th><th>Origem</th><th>Status</th><th>Horário</th></tr></thead>
