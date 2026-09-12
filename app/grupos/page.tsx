@@ -102,10 +102,10 @@ export default async function Page({ searchParams }: { searchParams?: { instance
       <div className="topbar">
         <div>
           <h1>Grupos</h1>
-          <div className="subtitle">Webhook captura entradas em tempo real. A lista de grupos é sincronizada automaticamente a cada 10 segundos.</div>
+          <div className="subtitle">Entradas chegam pelo webhook em tempo real. A nuvem reconcilia os grupos a cada 5 segundos e a tela acompanha ao vivo.</div>
         </div>
         <div className="toolbar">
-          <AutoRefresh intervalMs={10000} />
+          <AutoRefresh intervalMs={1000} />
           {selectedId ? <SyncButton instanceId={selectedId} /> : null}
         </div>
       </div>
