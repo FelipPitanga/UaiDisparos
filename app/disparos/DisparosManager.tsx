@@ -24,6 +24,7 @@ export default function DisparosManager({ campaigns, senders, groups }: Props) {
   const [dailyLimit, setDailyLimit] = useState(40);
   const [active, setActive] = useState(true);
   const [authorized, setAuthorized] = useState(false);
+  const [includeCapturedLeads, setIncludeCapturedLeads] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -47,13 +48,18 @@ export default function DisparosManager({ campaigns, senders, groups }: Props) {
           daily_limit_per_sender: Math.max(1, Math.round(dailyLimit)),
           active,
           authorization_confirmed: authorized,
+          include_captured_leads: includeCapturedLeads,
         }),
       });
       const data = await response.json();
       if (!response.ok || !data?.ok) throw new Error(data?.error || "Falha ao salvar automação.");
 
+      const backfillText = data?.captured_leads
+        ? ` ${data.captured_leads.queued} lead(s) já capturado(s) entraram na fila${data.captured_leads.skipped ? ` e ${data.captured_leads.skipped} já estavam processados/na fila` : ""}.`
+        : "";
+
       setMessage(active
-        ? "Automação criada/atualizada. Controle, fila e histórico ficam na aba Operações."
+        ? `Automação criada/atualizada.${backfillText} Controle, fila e histórico ficam na aba Operações.`
         : "Automação salva pausada. Você pode continuar depois pela aba Operações.");
       router.refresh();
     } catch (error) {
@@ -78,6 +84,24 @@ export default function DisparosManager({ campaigns, senders, groups }: Props) {
         <div className="field modal-field-gap">
           <label>Grupo que gera os leads</label>
           <select className="select" value={groupId} onChange={(e) => setGroupId(e.target.value)}>{groups.map((g) => <option key={g.id} value={g.id}>{g.name || g.external_id}</option>)}</select>
+        </div>
+
+        <div className="section-title modal-field-gap">Quais leads entram neste disparo?</div>
+        <div className="selector-grid">
+          <label className={`selector-card ${!includeCapturedLeads ? "selected" : ""}`}>
+            <input type="radio" name="leadMode" checked={!includeCapturedLeads} onChange={() => setIncludeCapturedLeads(false)} />
+            <span>
+              <strong>Somente novos leads a partir de agora</strong>
+              <small>Quem já foi capturado antes da ativação fica apenas salvo na aba Leads e não entra nesta operação.</small>
+            </span>
+          </label>
+          <label className={`selector-card ${includeCapturedLeads ? "selected" : ""}`}>
+            <input type="radio" name="leadMode" checked={includeCapturedLeads} onChange={() => setIncludeCapturedLeads(true)} />
+            <span>
+              <strong>Incluir leads já capturados deste grupo</strong>
+              <small>Coloca na fila os leads que o monitoramento já salvou e ainda não passaram por esta operação. Depois continua capturando os novos automaticamente.</small>
+            </span>
+          </label>
         </div>
 
         <div className="section-title modal-field-gap">Campanhas em rotação <span className="muted" style={{ fontSize: 12, fontWeight: 500 }}>({campaignIds.length}/5)</span></div>
