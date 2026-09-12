@@ -53,7 +53,7 @@ export default async function PrivateBroadcastPage() {
   return (
     <>
       <div className="row" style={{ justifyContent: "flex-end", marginBottom: 10 }}>
-        <LiveRefresh intervalMs={2000} />
+        <LiveRefresh intervalMs={1000} />
       </div>
       <PrivateBroadcastManager
         campaigns={campaigns as any}
