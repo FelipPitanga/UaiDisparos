@@ -3,32 +3,37 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-export default function LiveRefresh({ intervalMs = 2000 }: { intervalMs?: number }) {
+export default function LiveRefresh({ intervalMs = 1000 }: { intervalMs?: number }) {
   const router = useRouter();
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   useEffect(() => {
-    let running = false;
-
-    const tick = async () => {
-      if (running || document.hidden) return;
-      running = true;
-      try {
-        router.refresh();
-        setLastRefresh(new Date());
-      } finally {
-        running = false;
-      }
+    const tick = () => {
+      if (document.hidden) return;
+      router.refresh();
+      setLastRefresh(new Date());
     };
 
     tick();
     const timer = window.setInterval(tick, intervalMs);
-    return () => window.clearInterval(timer);
+    const onVisibility = () => {
+      if (!document.hidden) tick();
+    };
+    const onFocus = () => tick();
+
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [intervalMs, router]);
 
   return (
     <span className="badge ok" title={lastRefresh ? `Última atualização: ${lastRefresh.toLocaleTimeString("pt-BR")}` : "Atualizando..."}>
-      ● Ao vivo • {Math.round(intervalMs / 1000)}s
+      ● Ao vivo • {intervalMs < 1000 ? `${intervalMs}ms` : `${(intervalMs / 1000).toFixed(intervalMs % 1000 ? 1 : 0)}s`}
     </span>
   );
 }
