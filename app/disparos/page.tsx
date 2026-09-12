@@ -35,7 +35,7 @@ export default async function DisparosPage() {
   return (
     <>
       <div className="row" style={{ justifyContent: "flex-end", marginBottom: 10 }}>
-        <LiveRefresh intervalMs={2000} />
+        <LiveRefresh intervalMs={1000} />
       </div>
       <DisparosManager
         campaigns={campaigns as any}
