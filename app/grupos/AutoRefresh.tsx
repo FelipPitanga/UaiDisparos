@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-export default function AutoRefresh({ intervalMs = 10000 }: { intervalMs?: number }) {
+export default function AutoRefresh({ intervalMs = 1000 }: { intervalMs?: number }) {
   const router = useRouter();
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
@@ -14,13 +14,22 @@ export default function AutoRefresh({ intervalMs = 10000 }: { intervalMs?: numbe
       setLastRefresh(new Date());
     };
 
+    tick();
     const timer = window.setInterval(tick, intervalMs);
-    return () => window.clearInterval(timer);
+    const onVisibility = () => { if (!document.hidden) tick(); };
+    const onFocus = () => tick();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [intervalMs, router]);
 
   return (
     <span className="badge ok" title={lastRefresh ? `Tela atualizada às ${lastRefresh.toLocaleTimeString("pt-BR")}` : "Sincronização automática ativa"}>
-      ● Auto sync • {Math.round(intervalMs / 1000)}s
+      ● Ao vivo • {(intervalMs / 1000).toFixed(intervalMs % 1000 ? 1 : 0)}s
     </span>
   );
 }
