@@ -8,8 +8,8 @@ export default async function OperationsPage() {
   const supabase = getSupabaseAdmin();
 
   const [groupOpsResult, privateOpsResult, campaignsResult, instancesResult, groupsResult] = await Promise.all([
-    supabase.from("group_automations").select("id,group_id,campaign_id,campaign_ids,sender_instance_id,sender_instance_ids,active").eq("active", true).order("created_at", { ascending: false }),
-    supabase.from("private_broadcasts").select("id,name,campaign_ids,sender_instance_ids,status").eq("status", "active").order("created_at", { ascending: false }),
+    supabase.from("group_automations").select("id,group_id,campaign_id,campaign_ids,sender_instance_id,sender_instance_ids,active,created_at").order("created_at", { ascending: false }),
+    supabase.from("private_broadcasts").select("id,name,campaign_ids,sender_instance_ids,status,created_at").neq("status", "archived").order("created_at", { ascending: false }),
     supabase.from("campaigns").select("id,name"),
     supabase.from("instances").select("id,name,phone,status"),
     supabase.from("groups").select("id,name,external_id"),
@@ -26,10 +26,10 @@ export default async function OperationsPage() {
 
   const [jobsResult, recipientsResult] = await Promise.all([
     groupOpIds.length
-      ? supabase.from("jobs").select("id,automation_id,recipient,status,error_message,processed_at,scheduled_at,campaign_id,instance_id,created_at").in("automation_id", groupOpIds).order("created_at", { ascending: false }).limit(1000)
+      ? supabase.from("jobs").select("id,automation_id,recipient,status,error_message,processed_at,scheduled_at,campaign_id,instance_id,created_at").in("automation_id", groupOpIds).order("created_at", { ascending: false }).limit(2000)
       : Promise.resolve({ data: [] as any[] }),
     privateOpIds.length
-      ? supabase.from("private_broadcast_recipients").select("id,broadcast_id,phone,status,error_message,processed_at,scheduled_at,campaign_id,instance_id,created_at").in("broadcast_id", privateOpIds).order("created_at", { ascending: false }).limit(1000)
+      ? supabase.from("private_broadcast_recipients").select("id,broadcast_id,phone,status,error_message,processed_at,scheduled_at,campaign_id,instance_id,created_at").in("broadcast_id", privateOpIds).order("created_at", { ascending: false }).limit(2000)
       : Promise.resolve({ data: [] as any[] }),
   ]);
 
@@ -50,7 +50,7 @@ export default async function OperationsPage() {
       type: "group",
       title: group?.name || group?.external_id || "Disparo em grupo",
       subtitle: "Automação por entrada de novos leads",
-      active: true,
+      active: Boolean(op.active),
       campaigns: campaignIds.map((id: string) => campaignMap.get(id)).filter(Boolean),
       senders: senderIds.map((id: string) => instanceMap.get(id)).filter(Boolean),
       contacts: jobs.filter((job) => job.automation_id === op.id).map((job) => ({
@@ -72,7 +72,7 @@ export default async function OperationsPage() {
       type: "private",
       title: op.name || "Disparo privado",
       subtitle: "Lista privada de contatos",
-      active: true,
+      active: op.status === "active",
       campaigns: (op.campaign_ids || []).map((id: string) => campaignMap.get(id)).filter(Boolean),
       senders: (op.sender_instance_ids || []).map((id: string) => instanceMap.get(id)).filter(Boolean),
       contacts: recipients.filter((row) => row.broadcast_id === op.id).map((row) => ({
