@@ -1,5 +1,6 @@
 import { Smartphone, Users, UserRound, Megaphone, Send, TriangleAlert } from "lucide-react";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import LiveRefresh from "./disparos/LiveRefresh";
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +80,9 @@ export default async function Page() {
   const data = await getDashboardData();
 
   return <>
+    <div className="row" style={{ justifyContent: "flex-end", marginBottom: 10 }}>
+      <LiveRefresh intervalMs={1000} />
+    </div>
     <div className="topbar">
       <div>
         <h1>Dashboard</h1>
@@ -124,11 +128,7 @@ export default async function Page() {
               <tr key={event.id}>
                 <td>{event.event_type || "Webhook recebido"}</td>
                 <td>{event.group_external_id || event.provider || "UAZAPI"}</td>
-                <td>
-                  <span className={`badge ${event.processing_error ? "bad" : event.processed ? "ok" : "warn"}`}>
-                    {event.processing_error ? "erro" : event.processed ? "processado" : "pendente"}
-                  </span>
-                </td>
+                <td><span className={`badge ${event.processing_error ? "bad" : event.processed ? "ok" : "warn"}`}>{event.processing_error ? "erro" : event.processed ? "processado" : "pendente"}</span></td>
                 <td>{relativeTime(event.received_at)}</td>
               </tr>
             ))}
