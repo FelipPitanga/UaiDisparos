@@ -86,12 +86,12 @@ export async function POST(req: NextRequest) {
         .from("leads")
         .select("id,phone,lid,external_participant_id,first_seen_at")
         .eq("group_id", groupId)
-        .not("phone", "is", null)
         .order("first_seen_at", { ascending: true });
 
       if (leadsError) throw leadsError;
 
-      const leadIds = (capturedLeads || []).map((lead) => lead.id);
+      const eligibleLeads = (capturedLeads || []).filter((lead) => Boolean(lead.phone || lead.lid || lead.external_participant_id));
+      const leadIds = eligibleLeads.map((lead) => lead.id);
       const existingJobLeadIds = new Set<string>();
 
       if (leadIds.length) {
@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
       let skipped = 0;
       let failed = 0;
 
-      for (const lead of capturedLeads || []) {
+      for (const lead of eligibleLeads) {
         if (existingJobLeadIds.has(lead.id)) {
           skipped += 1;
           continue;
@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
       }
 
       capturedSummary = {
-        found: capturedLeads?.length || 0,
+        found: eligibleLeads.length,
         queued,
         skipped,
         failed,
