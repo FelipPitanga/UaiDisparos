@@ -20,10 +20,14 @@ export async function POST(req: NextRequest) {
     const dailyLimitPerSender = Math.min(1000, Math.max(1, Number(body?.daily_limit_per_sender || 40)));
     const active = body?.active === true;
     const authorizationConfirmed = body?.authorization_confirmed === true;
+    const includeNewLeads = body?.include_new_leads !== false;
     const includeCapturedLeads = body?.include_captured_leads === true;
 
     if (!groupId || !campaignIds.length || !senderInstanceIds.length) {
       return NextResponse.json({ ok: false, error: "Selecione grupo, ao menos uma campanha e ao menos um disparador." }, { status: 400 });
+    }
+    if (!includeNewLeads && !includeCapturedLeads) {
+      return NextResponse.json({ ok: false, error: "Marque novos leads, leads já capturados, ou os dois." }, { status: 400 });
     }
     if (active && !authorizationConfirmed) {
       return NextResponse.json({ ok: false, error: "Confirme a base de autorização antes de ativar a automação." }, { status: 400 });
@@ -57,6 +61,7 @@ export async function POST(req: NextRequest) {
       delay_seconds: Math.round(delaySeconds),
       send_interval_seconds: Math.round(sendIntervalSeconds),
       daily_limit_per_sender: Math.round(dailyLimitPerSender),
+      include_new_leads: includeNewLeads,
       active,
       authorization_confirmed: authorizationConfirmed,
       updated_at: now,
