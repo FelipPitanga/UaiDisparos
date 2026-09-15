@@ -7,8 +7,14 @@ export const dynamic = "force-dynamic";
 
 type UazParticipant = {
   JID?: string;
+  Jid?: string;
+  jid?: string;
   PhoneNumber?: string;
+  Phone?: string;
+  phone?: string;
   LID?: string;
+  Lid?: string;
+  lid?: string;
 };
 
 type UazGroup = {
@@ -21,6 +27,11 @@ type UazGroup = {
   Participants?: UazParticipant[];
   IsLocked?: boolean;
   IsAnnounce?: boolean;
+  IsParent?: boolean;
+  IsCommunity?: boolean;
+  IsCommunityAnnounce?: boolean;
+  LinkedParent?: string;
+  linkedParent?: string;
 };
 
 function extractGroups(payload: any): UazGroup[] {
@@ -35,12 +46,19 @@ function digits(value?: string | null) {
 }
 
 function normalizeParticipant(participant: UazParticipant) {
-  const jid = participant?.JID ? String(participant.JID) : null;
-  const lid = participant?.LID ? String(participant.LID) : jid?.endsWith("@lid") ? jid : null;
-  const explicitPhone = digits(participant?.PhoneNumber);
+  const jidRaw = participant?.JID ?? participant?.Jid ?? participant?.jid ?? null;
+  const lidRaw = participant?.LID ?? participant?.Lid ?? participant?.lid ?? null;
+  const phoneRaw = participant?.PhoneNumber ?? participant?.Phone ?? participant?.phone ?? null;
+
+  const jid = jidRaw ? String(jidRaw) : null;
+  const lid = lidRaw ? String(lidRaw) : jid?.endsWith("@lid") ? jid : null;
+  const explicitPhone = digits(phoneRaw);
   const jidPhone = jid?.endsWith("@s.whatsapp.net") ? digits(jid.split("@")[0]) : null;
   const phone = explicitPhone || jidPhone;
-  const participantId = jid || (phone ? `${phone}@s.whatsapp.net` : lid);
+  const participantId = jid || lid || (phone ? `${phone}@s.whatsapp.net` : null);
+
+  // Quando houver telefone, ele continua sendo a identidade principal. Em comunidades
+  // algumas entradas vêm somente como @lid; nesse caso o próprio LID vira a chave.
   const key = phone || lid || participantId;
   return { key, phone, lid, participantId };
 }
@@ -67,8 +85,8 @@ async function captureParticipants(
   const existingKeys = new Set((snapshots ?? []).map((item: any) => String(item.participant_key)));
   const currentKeys = new Set(normalized.map((item) => String(item.key)));
 
-  // Primeira leitura de um grupo já monitorado = cria a linha de base.
-  // Assim os membros antigos NÃO entram como leads novos.
+  // Primeira leitura de um grupo/comunidade já monitorado = cria a linha de base.
+  // Assim membros antigos NÃO entram como leads novos sem a opção explícita de backfill.
   if (!snapshots?.length) {
     if (normalized.length) {
       const { error } = await supabase.from("group_participant_snapshots").insert(
@@ -146,7 +164,7 @@ async function captureParticipants(
         last_seen_at: now,
         capture_count: Number(existingLead.capture_count || 1) + 1,
         updated_at: now,
-        metadata: { source: "group_sync", last_monitor_instance_id: monitor.id },
+        metadata: { source: "group_sync", last_monitor_instance_id: monitor.id, identity_type: item.phone ? "phone" : "lid" },
       }).eq("id", leadId);
     } else {
       const { data: createdLead, error: leadInsertError } = await supabase.from("leads").insert({
@@ -163,14 +181,16 @@ async function captureParticipants(
         status: "captured",
         first_seen_at: now,
         last_seen_at: now,
-        metadata: { source: "group_sync", first_monitor_instance_id: monitor.id },
+        metadata: { source: "group_sync", first_monitor_instance_id: monitor.id, identity_type: item.phone ? "phone" : "lid" },
       }).select("id").single();
       if (leadInsertError || !createdLead) throw leadInsertError ?? new Error("lead_not_created");
       leadId = createdLead.id;
       captured += 1;
     }
 
-    if (item.phone) {
+    // A UAZAPI aceita chat ID como destino. Portanto LIDs de comunidades também podem
+    // entrar na fila; a automação mantém o @lid intacto até o /send/*.
+    if (identity) {
       try {
         await enqueueForAutomation({
           leadId,
@@ -235,6 +255,10 @@ export async function POST() {
             group_created: group.GroupCreated ?? null,
             is_locked: Boolean(group.IsLocked),
             is_announce: Boolean(group.IsAnnounce),
+            is_parent: Boolean(group.IsParent),
+            is_community: Boolean(group.IsCommunity || group.IsParent),
+            is_community_announce: Boolean(group.IsCommunityAnnounce),
+            linked_parent: group.LinkedParent ?? group.linkedParent ?? null,
           },
         }));
 
