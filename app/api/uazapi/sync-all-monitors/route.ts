@@ -56,9 +56,6 @@ function normalizeParticipant(participant: UazParticipant) {
   const jidPhone = jid?.endsWith("@s.whatsapp.net") ? digits(jid.split("@")[0]) : null;
   const phone = explicitPhone || jidPhone;
   const participantId = jid || lid || (phone ? `${phone}@s.whatsapp.net` : null);
-
-  // Quando houver telefone, ele continua sendo a identidade principal. Em comunidades
-  // algumas entradas vêm somente como @lid; nesse caso o próprio LID vira a chave.
   const key = phone || lid || participantId;
   return { key, phone, lid, participantId };
 }
@@ -75,18 +72,26 @@ async function captureParticipants(
     .map(normalizeParticipant)
     .filter((item) => Boolean(item.key));
 
-  const { data: snapshots, error: snapshotError } = await supabase
-    .from("group_participant_snapshots")
-    .select("participant_key,present")
-    .eq("group_id", dbGroup.id);
+  const [{ data: snapshots, error: snapshotError }, { data: automationConfig }] = await Promise.all([
+    supabase
+      .from("group_participant_snapshots")
+      .select("participant_key,present")
+      .eq("group_id", dbGroup.id),
+    supabase
+      .from("group_automations")
+      .select("active,include_new_leads")
+      .eq("group_id", dbGroup.id)
+      .maybeSingle(),
+  ]);
   if (snapshotError) throw snapshotError;
 
+  const shouldQueueNew = Boolean(automationConfig?.active && automationConfig?.include_new_leads);
   const now = new Date().toISOString();
   const existingKeys = new Set((snapshots ?? []).map((item: any) => String(item.participant_key)));
   const currentKeys = new Set(normalized.map((item) => String(item.key)));
 
-  // Primeira leitura de um grupo/comunidade já monitorado = cria a linha de base.
-  // Assim membros antigos NÃO entram como leads novos sem a opção explícita de backfill.
+  // Primeira leitura de um grupo/comunidade monitorado cria a linha de base.
+  // Membros já presentes ficam conhecidos pelo monitor, mas não são tratados como entradas novas.
   if (!snapshots?.length) {
     if (normalized.length) {
       const { error } = await supabase.from("group_participant_snapshots").insert(
@@ -188,9 +193,9 @@ async function captureParticipants(
       captured += 1;
     }
 
-    // A UAZAPI aceita chat ID como destino. Portanto LIDs de comunidades também podem
-    // entrar na fila; a automação mantém o @lid intacto até o /send/*.
-    if (identity) {
+    // Captura e armazenamento são independentes do disparo.
+    // Quando "Novos leads" está marcado na automação, a entrada também vai para a fila.
+    if (identity && shouldQueueNew) {
       try {
         await enqueueForAutomation({
           leadId,
@@ -200,7 +205,7 @@ async function captureParticipants(
           sourceTimestamp: now,
         });
       } catch {
-        // A captura do lead não depende de existir uma automação ativa.
+        // Nunca perde o lead só porque a fila/campanha teve algum problema.
       }
     }
   }
