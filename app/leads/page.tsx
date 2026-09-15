@@ -28,6 +28,13 @@ function consentClass(value: string) {
   return "warn";
 }
 
+function identityType(lead: { phone?: string | null; lid?: string | null }) {
+  if (lead.phone && lead.lid) return "Telefone + LID";
+  if (lead.lid) return "LID";
+  if (lead.phone) return "Telefone";
+  return "Identificador";
+}
+
 export default async function Page() {
   const supabase = getSupabaseAdmin();
 
@@ -45,7 +52,7 @@ export default async function Page() {
       ? supabase.from("instances").select("id,name").in("id", instanceIds)
       : Promise.resolve({ data: [] as any[] }),
     groupIds.length
-      ? supabase.from("groups").select("id,name,external_id").in("id", groupIds)
+      ? supabase.from("groups").select("id,name,external_id,metadata").in("id", groupIds)
       : Promise.resolve({ data: [] as any[] }),
   ]);
 
@@ -54,6 +61,8 @@ export default async function Page() {
 
   const total = (leads ?? []).length;
   const uniquePhones = new Set((leads ?? []).map((x) => x.phone).filter(Boolean)).size;
+  const withLid = (leads ?? []).filter((x) => Boolean(x.lid)).length;
+  const lidOnly = (leads ?? []).filter((x) => !x.phone && Boolean(x.lid)).length;
   const duplicateCaptures = (leads ?? []).reduce((sum, x) => sum + Math.max(0, Number(x.capture_count || 1) - 1), 0);
   const authorized = (leads ?? []).filter((x) => ["opt_in", "opt-in", "granted"].includes(x.consent_status)).length;
 
@@ -65,14 +74,15 @@ export default async function Page() {
       <div className="topbar">
         <div>
           <h1>Leads</h1>
-          <div className="subtitle">Entradas reais capturadas pelos monitoradores, com deduplicação entre instâncias.</div>
+          <div className="subtitle">Entradas reais capturadas dos grupos e comunidades. Telefone e @lid são tratados como identidades válidas.</div>
         </div>
       </div>
 
       <div className="instance-summary-grid">
         <div className="card"><div className="label">Leads únicos</div><div className="metric">{total}</div></div>
         <div className="card"><div className="label">Com telefone</div><div className="metric">{uniquePhones}</div></div>
-        <div className="card"><div className="label">Capturas duplicadas evitadas</div><div className="metric">{duplicateCaptures}</div></div>
+        <div className="card"><div className="label">Com LID</div><div className="metric">{withLid}</div><div className="muted" style={{ marginTop: 4 }}>{lidOnly} somente @lid</div></div>
+        <div className="card"><div className="label">Duplicadas evitadas</div><div className="metric">{duplicateCaptures}</div></div>
         <div className="card"><div className="label">Autorizados</div><div className="metric">{authorized}</div></div>
       </div>
 
@@ -82,17 +92,22 @@ export default async function Page() {
         <table>
           <thead>
             <tr>
-              <th>Telefone</th><th>LID / identificador</th><th>Grupo</th><th>Monitor de origem</th><th>Capturas</th><th>Consentimento</th><th>Última entrada</th>
+              <th>Identidade</th><th>Telefone</th><th>LID / identificador</th><th>Grupo / comunidade</th><th>Monitor de origem</th><th>Capturas</th><th>Consentimento</th><th>Última entrada</th>
             </tr>
           </thead>
           <tbody>
             {(leads ?? []).map((lead) => {
-              const group = lead.group_id ? groupMap.get(lead.group_id) : null;
+              const group: any = lead.group_id ? groupMap.get(lead.group_id) : null;
+              const community = Boolean(group?.metadata?.is_parent || group?.metadata?.is_community || group?.metadata?.linked_parent || group?.metadata?.addressing_mode === "lid");
               return (
                 <tr key={lead.id}>
+                  <td><span className={`badge ${lead.lid ? "ok" : ""}`}>{identityType(lead)}</span></td>
                   <td>{lead.phone ? `+${lead.phone}` : "—"}</td>
                   <td>{lead.lid || lead.external_participant_id || "—"}</td>
-                  <td><div style={{ fontWeight: 700 }}>{group?.name || "Grupo não localizado"}</div><div className="muted" style={{ marginTop: 3 }}>{lead.source_group_external_id || group?.external_id || "—"}</div></td>
+                  <td>
+                    <div style={{ fontWeight: 700 }}>{group?.name || "Grupo não localizado"}</div>
+                    <div className="muted" style={{ marginTop: 3 }}>{community ? "Comunidade / LID • " : "Grupo • "}{lead.source_group_external_id || group?.external_id || "—"}</div>
+                  </td>
                   <td>{lead.instance_id ? instanceMap.get(lead.instance_id) || "—" : "—"}</td>
                   <td><span className={`badge ${Number(lead.capture_count || 1) > 1 ? "warn" : ""}`}>{lead.capture_count || 1}x</span></td>
                   <td><span className={`badge ${consentClass(lead.consent_status)}`}>{consentLabel(lead.consent_status)}</span></td>
@@ -100,7 +115,7 @@ export default async function Page() {
                 </tr>
               );
             })}
-            {!leads?.length ? <tr><td colSpan={7}>Nenhum lead capturado ainda.</td></tr> : null}
+            {!leads?.length ? <tr><td colSpan={8}>Nenhum lead capturado ainda.</td></tr> : null}
           </tbody>
         </table>
       </div>
