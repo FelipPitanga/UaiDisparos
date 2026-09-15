@@ -8,7 +8,7 @@ export function renderCampaignText(template: string | null, lead: LeadLike, grou
   const now = new Date();
   const replacements: Record<string, string> = {
     nome: lead.name || "",
-    telefone: lead.phone || "",
+    telefone: lead.phone || lead.lid || "",
     grupo: group.name || group.external_id,
     data: new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo" }).format(now),
     hora: new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }).format(now),
@@ -28,6 +28,29 @@ function normalizeButtons(buttons: any) {
     type: ["reply", "url", "call", "copy"].includes(String(button?.type)) ? String(button.type) : "reply",
     id: String(button?.id || `btn_${index + 1}`).trim().slice(0, 50),
   })).filter((button) => button.label && button.value).slice(0, 3);
+}
+
+function normalizeDirectRecipient(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  // A UAZAPI aceita número ou chat ID. LID não pode perder o sufixo @lid,
+  // pois os dígitos do LID não são o número de telefone do participante.
+  if (raw.endsWith("@lid") || raw.endsWith("@s.whatsapp.net")) return raw;
+  return raw.replace(/\D/g, "");
+}
+
+function resolveLeadRecipient(lead: { phone?: string | null; lid?: string | null }, preferred?: string | null) {
+  const preferredRecipient = normalizeDirectRecipient(preferred);
+  if (preferredRecipient) return preferredRecipient;
+
+  const phone = normalizeDirectRecipient(lead.phone);
+  if (phone) return phone;
+
+  const lid = normalizeDirectRecipient(lead.lid);
+  if (lid?.endsWith("@lid")) return lid;
+
+  return "";
 }
 
 function tenSecondBucket(sourceTimestamp?: string | null) {
@@ -163,13 +186,22 @@ export async function processJob(jobId: string) {
     await supabase.from("jobs").update({ instance_id: sender.id, updated_at: new Date().toISOString() }).eq("id", job.id);
   }
 
-  const recipient = String(job.recipient || lead.phone || "").replace(/\D/g, "");
+  const recipient = resolveLeadRecipient(lead, job.recipient);
   if (!recipient) {
-    await supabase.from("jobs").update({ status: "failed", error_message: "Lead sem telefone utilizável", processed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", job.id);
-    return { ok: false, error: "Lead sem telefone utilizável" };
+    await supabase.from("jobs").update({ status: "failed", error_message: "Lead sem telefone ou LID utilizável", processed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", job.id);
+    return { ok: false, error: "Lead sem telefone ou LID utilizável" };
   }
 
-  const { data: suppressed } = await supabase.from("suppression_list").select("id").or(`phone.eq.${recipient}${lead.lid ? `,lid.eq.${lead.lid}` : ""}`).limit(1).maybeSingle();
+  let suppressed = null;
+  if (lead.phone) {
+    const phone = String(lead.phone).replace(/\D/g, "");
+    const { data } = await supabase.from("suppression_list").select("id").eq("phone", phone).limit(1).maybeSingle();
+    suppressed = data;
+  }
+  if (!suppressed && lead.lid) {
+    const { data } = await supabase.from("suppression_list").select("id").eq("lid", lead.lid).limit(1).maybeSingle();
+    suppressed = data;
+  }
   if (suppressed) {
     await supabase.from("jobs").update({ status: "failed", error_message: "Destinatário na lista de supressão", processed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", job.id);
     return { ok: false, error: "Destinatário na lista de supressão" };
@@ -209,7 +241,7 @@ export async function processJob(jobId: string) {
     }
 
     const now = new Date().toISOString();
-    await supabase.from("jobs").update({ status: "sent", instance_id: sender.id, provider_message_id: ids.join(",") || null, processed_at: now, error_message: null, payload: { ...(job.payload || {}), rendered_text: text, buttons }, updated_at: now }).eq("id", job.id);
+    await supabase.from("jobs").update({ status: "sent", instance_id: sender.id, provider_message_id: ids.join(",") || null, processed_at: now, error_message: null, payload: { ...(job.payload || {}), rendered_text: text, buttons, recipient_type: recipient.endsWith("@lid") ? "lid" : "phone" }, updated_at: now }).eq("id", job.id);
     return { ok: true, sent: true, senderId: sender.id };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro no envio";
@@ -238,8 +270,8 @@ export async function enqueueForAutomation(params: { leadId: string; groupId: st
   if (!automation || !automation.authorization_confirmed) return { queued: false, reason: "no_active_authorized_automation" };
 
   const { data: lead } = await supabase.from("leads").select("phone,lid").eq("id", params.leadId).single();
-  const recipient = String(lead?.phone || "").replace(/\D/g, "");
-  if (!recipient) return { queued: false, reason: "lead_without_phone" };
+  const recipient = resolveLeadRecipient(lead || {}, params.identity);
+  if (!recipient) return { queued: false, reason: "lead_without_phone_or_lid" };
 
   const campaignIds: string[] = automation.campaign_ids?.length ? automation.campaign_ids : automation.campaign_id ? [automation.campaign_id] : [];
   if (!campaignIds.length) return { queued: false, reason: "automation_without_campaign" };
@@ -266,7 +298,7 @@ export async function enqueueForAutomation(params: { leadId: string; groupId: st
     dedupe_key: dedupeKey,
     status: "queued",
     scheduled_at: scheduledAt,
-    payload: { source: "group_join", group_external_id: params.groupExternalId, rotation_index: sequence },
+    payload: { source: "group_join", group_external_id: params.groupExternalId, rotation_index: sequence, recipient_type: recipient.endsWith("@lid") ? "lid" : "phone" },
     created_at: now,
     updated_at: now,
   }).select("id").single();
@@ -276,7 +308,7 @@ export async function enqueueForAutomation(params: { leadId: string; groupId: st
     throw error;
   }
 
-  // O webhook apenas enfileira. O processador em nuvem escoa a fila em série,
+  // O webhook/sincronizador apenas enfileira. O processador em nuvem escoa a fila em série,
   // respeitando atraso, intervalo por conta, limite diário e disponibilidade.
-  return { queued: true, jobId: created.id, scheduledAt };
+  return { queued: true, jobId: created.id, scheduledAt, recipientType: recipient.endsWith("@lid") ? "lid" : "phone" };
 }
