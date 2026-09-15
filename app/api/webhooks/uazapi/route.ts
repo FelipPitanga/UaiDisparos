@@ -160,6 +160,7 @@ export async function POST(req: NextRequest) {
 
     let leadId: string;
     let duplicate = false;
+    const identityType = normalized.phone ? "phone" : normalized.lid ? "lid" : "participant_id";
 
     if (existingLead?.id) {
       duplicate = true;
@@ -170,7 +171,7 @@ export async function POST(req: NextRequest) {
         last_seen_at: now,
         capture_count: Number(existingLead.capture_count || 1) + 1,
         dedupe_key: dedupeKey,
-        metadata: { source_event_id: evt.id, last_monitor_instance_id: instance.id, duplicate_capture: true },
+        metadata: { source_event_id: evt.id, last_monitor_instance_id: instance.id, duplicate_capture: true, identity_type: identityType },
         updated_at: now,
       }).eq("id", existingLead.id);
       if (updateLeadError) throw updateLeadError;
@@ -190,7 +191,7 @@ export async function POST(req: NextRequest) {
         status: "captured",
         first_seen_at: now,
         last_seen_at: now,
-        metadata: { source_event_id: evt.id, first_monitor_instance_id: instance.id },
+        metadata: { source_event_id: evt.id, first_monitor_instance_id: instance.id, identity_type: identityType },
       };
 
       const { data: createdLead, error: createLeadError } = await supabase.from("leads").insert(insertPayload).select("id").single();
@@ -209,7 +210,7 @@ export async function POST(req: NextRequest) {
 
     let automationResult: any = { queued: false };
     const identity = canonicalIdentity(normalized);
-    if (identity && normalized.phone) {
+    if (identity) {
       try {
         automationResult = await enqueueForAutomation({
           leadId,
