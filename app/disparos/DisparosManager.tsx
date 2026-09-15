@@ -5,13 +5,32 @@ import { useRouter } from "next/navigation";
 
 type Campaign = { id: string; name: string; text_content: string | null };
 type Sender = { id: string; name: string; status: string; phone: string | null };
-type Group = { id: string; name: string | null; external_id: string; monitoring_enabled: boolean };
+type Group = {
+  id: string;
+  name: string | null;
+  external_id: string;
+  monitoring_enabled: boolean;
+  metadata?: {
+    is_parent?: boolean;
+    is_community?: boolean;
+    linked_parent?: string | null;
+    addressing_mode?: string | null;
+  } | null;
+};
 type Props = { campaigns: Campaign[]; senders: Sender[]; groups: Group[] };
 
 function toggleInList(current: string[], id: string, max?: number) {
   if (current.includes(id)) return current.filter((item) => item !== id);
   if (max && current.length >= max) return current;
   return [...current, id];
+}
+
+function groupKind(group: Group) {
+  const metadata = group.metadata || {};
+  if (metadata.is_parent || metadata.is_community) return "Comunidade";
+  if (metadata.linked_parent) return "Grupo da comunidade";
+  if (metadata.addressing_mode === "lid") return "Grupo com identidade LID";
+  return "Grupo";
 }
 
 export default function DisparosManager({ campaigns, senders, groups }: Props) {
@@ -28,11 +47,13 @@ export default function DisparosManager({ campaigns, senders, groups }: Props) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
+  const selectedGroup = groups.find((group) => group.id === groupId) || null;
+
   async function saveAutomation() {
     setBusy(true);
     setMessage("");
     try {
-      if (!groupId) throw new Error("Selecione um grupo.");
+      if (!groupId) throw new Error("Selecione um grupo ou comunidade.");
       if (!campaignIds.length) throw new Error("Selecione pelo menos uma campanha.");
       if (!senderIds.length) throw new Error("Selecione pelo menos um disparador.");
 
@@ -59,7 +80,7 @@ export default function DisparosManager({ campaigns, senders, groups }: Props) {
         : "";
 
       setMessage(active
-        ? `Automação criada/atualizada.${backfillText} Controle, fila e histórico ficam na aba Operações.`
+        ? `Automação criada/atualizada.${backfillText} Leads por telefone e @lid usam a mesma fila. Controle, fila e histórico ficam na aba Operações.`
         : "Automação salva pausada. Você pode continuar depois pela aba Operações.");
       router.refresh();
     } catch (error) {
@@ -72,18 +93,28 @@ export default function DisparosManager({ campaigns, senders, groups }: Props) {
   return (
     <>
       <div className="topbar">
-        <div><h1>Disparo em grupo</h1><div className="subtitle">Configure a automação aqui. Controle, fila e histórico ficam 100% na aba Operações.</div></div>
+        <div>
+          <h1>Disparo em grupo</h1>
+          <div className="subtitle">Grupos normais e comunidades usam a mesma automação. Leads com telefone ou @lid são aceitos pelo fluxo.</div>
+        </div>
       </div>
 
       <div className="card automation-card">
-        <div className="section-title">Nova automação de grupo</div>
+        <div className="section-title">Nova automação de grupo / comunidade</div>
         <div className="muted" style={{ marginBottom: 14 }}>
-          O sistema roda em nuvem mesmo com o site fechado. Depois de salvar, acompanhe tudo em Operações.
+          O monitor captura novas entradas em nuvem mesmo com o site fechado. Em comunidades, o identificador @lid é preservado até o envio.
         </div>
 
         <div className="field modal-field-gap">
-          <label>Grupo que gera os leads</label>
-          <select className="select" value={groupId} onChange={(e) => setGroupId(e.target.value)}>{groups.map((g) => <option key={g.id} value={g.id}>{g.name || g.external_id}</option>)}</select>
+          <label>Grupo ou comunidade que gera os leads</label>
+          <select className="select" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+            {groups.map((g) => <option key={g.id} value={g.id}>{g.name || g.external_id} • {groupKind(g)}</option>)}
+          </select>
+          {selectedGroup ? (
+            <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+              {groupKind(selectedGroup)} • {selectedGroup.external_id} • {selectedGroup.monitoring_enabled ? "monitorando" : "monitoramento será ativado ao salvar"}
+            </div>
+          ) : null}
         </div>
 
         <div className="section-title modal-field-gap">Quais leads entram neste disparo?</div>
@@ -99,7 +130,7 @@ export default function DisparosManager({ campaigns, senders, groups }: Props) {
             <input type="radio" name="leadMode" checked={includeCapturedLeads} onChange={() => setIncludeCapturedLeads(true)} />
             <span>
               <strong>Incluir leads já capturados deste grupo</strong>
-              <small>Coloca na fila os leads que o monitoramento já salvou e ainda não passaram por esta operação. Depois continua capturando os novos automaticamente.</small>
+              <small>Inclui telefone e @lid já armazenados e ainda não processados por esta operação. Depois continua capturando os novos automaticamente.</small>
             </span>
           </label>
         </div>
@@ -142,11 +173,11 @@ export default function DisparosManager({ campaigns, senders, groups }: Props) {
         </div>
 
         <div className="automation-switches">
-          <label className="check-row"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /><span><strong>Automação ativa</strong><small>Novas entradas desse grupo entram automaticamente na fila.</small></span></label>
+          <label className="check-row"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /><span><strong>Automação ativa</strong><small>Novas entradas desse grupo/comunidade entram automaticamente na fila.</small></span></label>
           <label className="check-row"><input type="checkbox" checked={authorized} onChange={(e) => setAuthorized(e.target.checked)} /><span><strong>Contato autorizado</strong><small>Confirmo que as pessoas desse fluxo deram consentimento para receber mensagens privadas desta empresa no WhatsApp.</small></span></label>
         </div>
 
-        {!groups.length || !campaigns.length || !senders.length ? <div className="alert-error compact">Para ativar, tenha pelo menos 1 grupo, 1 campanha e 1 disparador.</div> : null}
+        {!groups.length || !campaigns.length || !senders.length ? <div className="alert-error compact">Para ativar, tenha pelo menos 1 grupo/comunidade, 1 campanha e 1 disparador.</div> : null}
         {message ? <div className="subtitle" style={{ marginTop: 14 }}>{message}</div> : null}
         <button className="btn modal-field-gap" onClick={saveAutomation} disabled={busy || !groups.length || !campaignIds.length || !senderIds.length}>{busy ? "Salvando..." : "Salvar automação"}</button>
       </div>
