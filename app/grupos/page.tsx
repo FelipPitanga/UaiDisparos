@@ -17,6 +17,13 @@ function webhookInfo(payload: any) {
   };
 }
 
+function groupKind(metadata: any) {
+  if (metadata?.is_parent || metadata?.is_community) return "Comunidade";
+  if (metadata?.linked_parent) return "Grupo da comunidade";
+  if (metadata?.addressing_mode === "lid") return "Grupo • LID";
+  return "Grupo";
+}
+
 export default async function Page({ searchParams }: { searchParams?: { instance?: string } }) {
   const supabase = getSupabaseAdmin();
 
@@ -31,7 +38,7 @@ export default async function Page({ searchParams }: { searchParams?: { instance
 
   const groupsQuery = supabase
     .from("groups")
-    .select("id,name,external_id,member_count,monitoring_enabled,updated_at,instance_id")
+    .select("id,name,external_id,member_count,monitoring_enabled,updated_at,instance_id,metadata")
     .order("name", { ascending: true });
 
   const { data: groups, error } = selectedId
@@ -39,6 +46,7 @@ export default async function Page({ searchParams }: { searchParams?: { instance
     : { data: [], error: null };
 
   const monitoredCount = (groups ?? []).filter((g) => g.monitoring_enabled).length;
+  const communityCount = (groups ?? []).filter((g: any) => g.metadata?.is_parent || g.metadata?.is_community || g.metadata?.linked_parent).length;
 
   let providerWebhook = { enabled: false, url: null as string | null, events: [] as string[] };
   let providerWebhookError: string | null = null;
@@ -101,8 +109,8 @@ export default async function Page({ searchParams }: { searchParams?: { instance
     <>
       <div className="topbar">
         <div>
-          <h1>Grupos</h1>
-          <div className="subtitle">Entradas chegam pelo webhook em tempo real. A nuvem reconcilia os grupos a cada 5 segundos e a tela acompanha ao vivo.</div>
+          <h1>Grupos & comunidades</h1>
+          <div className="subtitle">Monitore grupos normais, grupos ligados a comunidades e comunidades retornadas pela UAZAPI. Leads por telefone ou @lid são capturados pela mesma lógica.</div>
         </div>
         <div className="toolbar">
           <AutoRefresh intervalMs={1000} />
@@ -141,7 +149,8 @@ export default async function Page({ searchParams }: { searchParams?: { instance
               <span className={`badge ${selectedMonitor.webhook_enabled ? "ok" : "warn"}`}>
                 Webhook {selectedMonitor.webhook_enabled ? "ativo" : "pendente"}
               </span>
-              <span className="badge">{(groups ?? []).length} grupos</span>
+              <span className="badge">{(groups ?? []).length} grupos/comunidades</span>
+              {communityCount ? <span className="badge">{communityCount} ligados a comunidade</span> : null}
               <span className="badge ok">{monitoredCount} monitorando</span>
             </div>
           </div>
@@ -174,23 +183,26 @@ export default async function Page({ searchParams }: { searchParams?: { instance
         <table>
           <thead>
             <tr>
-              <th>Grupo</th>
+              <th>Grupo / comunidade</th>
               <th>ID</th>
               <th>Participantes</th>
               <th>Monitoramento</th>
             </tr>
           </thead>
           <tbody>
-            {(groups ?? []).map((group) => (
+            {(groups ?? []).map((group: any) => (
               <tr key={group.id}>
-                <td>{group.name || "Sem nome"}</td>
+                <td>
+                  <div style={{ fontWeight: 700 }}>{group.name || "Sem nome"}</div>
+                  <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>{groupKind(group.metadata)}</div>
+                </td>
                 <td>{group.external_id}</td>
                 <td>{group.member_count ?? "—"}</td>
                 <td><MonitorToggle id={group.id} initialEnabled={Boolean(group.monitoring_enabled)} /></td>
               </tr>
             ))}
             {!groups?.length ? (
-              <tr><td colSpan={4}>{selectedId ? "Nenhum grupo sincronizado para essa instância." : "Escolha uma instância monitoradora."}</td></tr>
+              <tr><td colSpan={4}>{selectedId ? "Nenhum grupo ou comunidade sincronizado para essa instância." : "Escolha uma instância monitoradora."}</td></tr>
             ) : null}
           </tbody>
         </table>
