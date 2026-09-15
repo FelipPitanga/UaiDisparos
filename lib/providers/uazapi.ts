@@ -141,13 +141,26 @@ export class UazapiProvider {
     if (joined.length > 0) {
       const participantId = typeof joined[0] === "string" ? joined[0] : null;
       const phone = participantId?.includes("@s.whatsapp.net") ? participantId.split("@")[0] : null;
-      const lid = typeof joinedLids[0] === "string" ? joinedLids[0] : null;
+      const explicitLid = typeof joinedLids[0] === "string" ? joinedLids[0] : null;
+      const lid = explicitLid || (participantId?.includes("@lid") ? participantId : null);
 
       return {
         type: "participant_joined",
         groupId: groupId ?? undefined,
         participantId: participantId ?? lid ?? undefined,
         phone,
+        lid,
+        raw: payload,
+      };
+    }
+
+    if (joinedLids.length > 0) {
+      const lid = typeof joinedLids[0] === "string" ? joinedLids[0] : null;
+      return {
+        type: "participant_joined",
+        groupId: groupId ?? undefined,
+        participantId: lid ?? undefined,
+        phone: null,
         lid,
         raw: payload,
       };
