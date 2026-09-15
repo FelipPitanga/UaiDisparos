@@ -208,9 +208,17 @@ export async function POST(req: NextRequest) {
       else leadId = createdLead.id;
     }
 
-    let automationResult: any = { queued: false };
+    const { data: automationConfig } = await supabase
+      .from("group_automations")
+      .select("active,include_new_leads")
+      .eq("group_id", group.id)
+      .maybeSingle();
+
+    let automationResult: any = { queued: false, reason: "new_leads_disabled_or_no_automation" };
     const identity = canonicalIdentity(normalized);
-    if (identity) {
+    const shouldQueueNew = Boolean(automationConfig?.active && automationConfig?.include_new_leads);
+
+    if (identity && shouldQueueNew) {
       try {
         automationResult = await enqueueForAutomation({
           leadId,
