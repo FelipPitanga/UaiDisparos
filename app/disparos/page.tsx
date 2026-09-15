@@ -9,7 +9,7 @@ export default async function DisparosPage() {
   const [campaignsResult, sendersResult, groupsResult] = await Promise.all([
     supabase.from("campaigns").select("id,name,text_content").eq("status", "active").order("created_at", { ascending: false }),
     supabase.from("instances").select("id,name,status,phone").eq("instance_role", "sender").order("created_at", { ascending: true }),
-    supabase.from("groups").select("id,name,external_id,monitoring_enabled,metadata").order("name", { ascending: true }),
+    supabase.from("groups").select("id,name,external_id,member_count,monitoring_enabled,metadata").order("name", { ascending: true }),
   ]);
 
   return (
