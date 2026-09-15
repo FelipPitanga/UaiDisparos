@@ -9,6 +9,7 @@ type Group = {
   id: string;
   name: string | null;
   external_id: string;
+  member_count?: number | null;
   monitoring_enabled: boolean;
   metadata?: {
     is_parent?: boolean;
@@ -25,16 +26,31 @@ function toggleInList(current: string[], id: string, max?: number) {
   return [...current, id];
 }
 
-function groupKind(group: Group) {
+function isCommunity(group: Group) {
   const metadata = group.metadata || {};
-  if (metadata.is_parent || metadata.is_community) return "Comunidade";
-  if (metadata.linked_parent) return "Grupo da comunidade";
-  if (metadata.addressing_mode === "lid") return "Grupo com identidade LID";
-  return "Grupo";
+  return Boolean(metadata.is_parent || metadata.is_community);
+}
+
+function identityLabel(group: Group) {
+  return group.metadata?.addressing_mode === "lid" ? "LID" : "telefone";
+}
+
+function groupKind(group: Group) {
+  return isCommunity(group) ? "Comunidade" : "Grupo";
+}
+
+function optionLabel(group: Group) {
+  const prefix = isCommunity(group) ? "🌐 COMUNIDADE" : "👥 GRUPO";
+  const count = typeof group.member_count === "number" ? ` • ${group.member_count} participantes` : "";
+  const identity = group.metadata?.addressing_mode === "lid" ? " • identidade LID" : "";
+  return `${prefix} — ${group.name || group.external_id}${count}${identity}`;
 }
 
 export default function DisparosManager({ campaigns, senders, groups }: Props) {
   const router = useRouter();
+  const communities = groups.filter(isCommunity);
+  const normalGroups = groups.filter((group) => !isCommunity(group));
+
   const [groupId, setGroupId] = useState(groups[0]?.id || "");
   const [campaignIds, setCampaignIds] = useState<string[]>(campaigns[0]?.id ? [campaigns[0].id] : []);
   const [senderIds, setSenderIds] = useState<string[]>(senders[0]?.id ? [senders[0].id] : []);
@@ -43,6 +59,7 @@ export default function DisparosManager({ campaigns, senders, groups }: Props) {
   const [dailyLimit, setDailyLimit] = useState(40);
   const [active, setActive] = useState(true);
   const [authorized, setAuthorized] = useState(false);
+  const [includeNewLeads, setIncludeNewLeads] = useState(true);
   const [includeCapturedLeads, setIncludeCapturedLeads] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -56,6 +73,7 @@ export default function DisparosManager({ campaigns, senders, groups }: Props) {
       if (!groupId) throw new Error("Selecione um grupo ou comunidade.");
       if (!campaignIds.length) throw new Error("Selecione pelo menos uma campanha.");
       if (!senderIds.length) throw new Error("Selecione pelo menos um disparador.");
+      if (!includeNewLeads && !includeCapturedLeads) throw new Error("Marque novos leads, leads já capturados, ou os dois.");
 
       const response = await fetch("/api/automations", {
         method: "POST",
@@ -69,6 +87,7 @@ export default function DisparosManager({ campaigns, senders, groups }: Props) {
           daily_limit_per_sender: Math.max(1, Math.round(dailyLimit)),
           active,
           authorization_confirmed: authorized,
+          include_new_leads: includeNewLeads,
           include_captured_leads: includeCapturedLeads,
         }),
       });
@@ -78,9 +97,10 @@ export default function DisparosManager({ campaigns, senders, groups }: Props) {
       const backfillText = data?.captured_leads
         ? ` ${data.captured_leads.queued} lead(s) já capturado(s) entraram na fila${data.captured_leads.skipped ? ` e ${data.captured_leads.skipped} já estavam processados/na fila` : ""}.`
         : "";
+      const liveText = includeNewLeads ? " Novas entradas continuarão entrando automaticamente." : " Novas entradas continuarão sendo capturadas, mas não entram nesta operação.";
 
       setMessage(active
-        ? `Automação criada/atualizada.${backfillText} Leads por telefone e @lid usam a mesma fila. Controle, fila e histórico ficam na aba Operações.`
+        ? `Automação criada/atualizada.${backfillText}${liveText} Telefone e @lid usam a mesma fila. Controle, fila e histórico ficam na aba Operações.`
         : "Automação salva pausada. Você pode continuar depois pela aba Operações.");
       router.refresh();
     } catch (error) {
@@ -102,37 +122,53 @@ export default function DisparosManager({ campaigns, senders, groups }: Props) {
       <div className="card automation-card">
         <div className="section-title">Nova automação de grupo / comunidade</div>
         <div className="muted" style={{ marginBottom: 14 }}>
-          O monitor captura novas entradas em nuvem mesmo com o site fechado. Em comunidades, o identificador @lid é preservado até o envio.
+          O monitor captura e armazena novas entradas em nuvem mesmo com o site fechado. Em comunidades, o identificador @lid é preservado até o envio.
         </div>
 
         <div className="field modal-field-gap">
           <label>Grupo ou comunidade que gera os leads</label>
           <select className="select" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
-            {groups.map((g) => <option key={g.id} value={g.id}>{g.name || g.external_id} • {groupKind(g)}</option>)}
+            {communities.length ? (
+              <optgroup label={`🌐 COMUNIDADES (${communities.length})`}>
+                {communities.map((group) => <option key={group.id} value={group.id}>{optionLabel(group)}</option>)}
+              </optgroup>
+            ) : null}
+            {normalGroups.length ? (
+              <optgroup label={`👥 GRUPOS (${normalGroups.length})`}>
+                {normalGroups.map((group) => <option key={group.id} value={group.id}>{optionLabel(group)}</option>)}
+              </optgroup>
+            ) : null}
           </select>
           {selectedGroup ? (
-            <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
-              {groupKind(selectedGroup)} • {selectedGroup.external_id} • {selectedGroup.monitoring_enabled ? "monitorando" : "monitoramento será ativado ao salvar"}
+            <div className="row" style={{ marginTop: 8, gap: 8, flexWrap: "wrap" }}>
+              <span className={`badge ${isCommunity(selectedGroup) ? "ok" : ""}`}>{isCommunity(selectedGroup) ? "🌐 Comunidade" : "👥 Grupo"}</span>
+              <span className="badge">Identidade: {identityLabel(selectedGroup)}</span>
+              {typeof selectedGroup.member_count === "number" ? <span className="badge">{selectedGroup.member_count} participantes</span> : null}
+              <span className={`badge ${selectedGroup.monitoring_enabled ? "ok" : "warn"}`}>{selectedGroup.monitoring_enabled ? "Monitorando" : "Monitoramento será ativado ao salvar"}</span>
+              <span className="muted" style={{ alignSelf: "center", fontSize: 12 }}>{selectedGroup.external_id}</span>
             </div>
           ) : null}
         </div>
 
         <div className="section-title modal-field-gap">Quais leads entram neste disparo?</div>
         <div className="selector-grid">
-          <label className={`selector-card ${!includeCapturedLeads ? "selected" : ""}`}>
-            <input type="radio" name="leadMode" checked={!includeCapturedLeads} onChange={() => setIncludeCapturedLeads(false)} />
+          <label className={`selector-card ${includeNewLeads ? "selected" : ""}`}>
+            <input type="checkbox" checked={includeNewLeads} onChange={(e) => setIncludeNewLeads(e.target.checked)} />
             <span>
-              <strong>Somente novos leads a partir de agora</strong>
-              <small>Quem já foi capturado antes da ativação fica apenas salvo na aba Leads e não entra nesta operação.</small>
+              <strong>Novos leads a partir de agora</strong>
+              <small>Quem entrar depois da ativação continua sendo capturado e entra automaticamente nesta operação.</small>
             </span>
           </label>
           <label className={`selector-card ${includeCapturedLeads ? "selected" : ""}`}>
-            <input type="radio" name="leadMode" checked={includeCapturedLeads} onChange={() => setIncludeCapturedLeads(true)} />
+            <input type="checkbox" checked={includeCapturedLeads} onChange={(e) => setIncludeCapturedLeads(e.target.checked)} />
             <span>
-              <strong>Incluir leads já capturados deste grupo</strong>
-              <small>Inclui telefone e @lid já armazenados e ainda não processados por esta operação. Depois continua capturando os novos automaticamente.</small>
+              <strong>Leads já capturados e armazenados</strong>
+              <small>Inclui telefone e @lid já salvos deste grupo/comunidade e que ainda não passaram por esta operação.</small>
             </span>
           </label>
+        </div>
+        <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+          Pode marcar os dois: o sistema coloca os leads antigos na fila e continua adicionando os novos automaticamente.
         </div>
 
         <div className="section-title modal-field-gap">Campanhas em rotação <span className="muted" style={{ fontSize: 12, fontWeight: 500 }}>({campaignIds.length}/5)</span></div>
@@ -173,13 +209,14 @@ export default function DisparosManager({ campaigns, senders, groups }: Props) {
         </div>
 
         <div className="automation-switches">
-          <label className="check-row"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /><span><strong>Automação ativa</strong><small>Novas entradas desse grupo/comunidade entram automaticamente na fila.</small></span></label>
+          <label className="check-row"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /><span><strong>Automação ativa</strong><small>Mantém a operação em execução na nuvem. O controle de leads novos/antigos é feito nas opções acima.</small></span></label>
           <label className="check-row"><input type="checkbox" checked={authorized} onChange={(e) => setAuthorized(e.target.checked)} /><span><strong>Contato autorizado</strong><small>Confirmo que as pessoas desse fluxo deram consentimento para receber mensagens privadas desta empresa no WhatsApp.</small></span></label>
         </div>
 
         {!groups.length || !campaigns.length || !senders.length ? <div className="alert-error compact">Para ativar, tenha pelo menos 1 grupo/comunidade, 1 campanha e 1 disparador.</div> : null}
+        {!includeNewLeads && !includeCapturedLeads ? <div className="alert-error compact">Marque pelo menos uma origem de leads: novos, já capturados, ou as duas.</div> : null}
         {message ? <div className="subtitle" style={{ marginTop: 14 }}>{message}</div> : null}
-        <button className="btn modal-field-gap" onClick={saveAutomation} disabled={busy || !groups.length || !campaignIds.length || !senderIds.length}>{busy ? "Salvando..." : "Salvar automação"}</button>
+        <button className="btn modal-field-gap" onClick={saveAutomation} disabled={busy || !groups.length || !campaignIds.length || !senderIds.length || (!includeNewLeads && !includeCapturedLeads)}>{busy ? "Salvando..." : "Salvar automação"}</button>
       </div>
     </>
   );
