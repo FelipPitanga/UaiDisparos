@@ -7,7 +7,7 @@ import WebhookStatus from "./WebhookStatus";
 
 export const dynamic = "force-dynamic";
 
-type GroupType = "group" | "community" | "community_group" | "lid_group";
+type GroupType = "group" | "community";
 type TypeFilter = "all" | GroupType;
 
 function webhookInfo(payload: any) {
@@ -20,35 +20,28 @@ function webhookInfo(payload: any) {
   };
 }
 
+// Importante: addressing_mode === "lid" NÃO significa comunidade.
+// Hoje o WhatsApp/UAZAPI retorna LID em muitos grupos normais também.
+// Comunidade é somente quando a própria estrutura vem marcada como parent/community.
 function groupType(metadata: any): GroupType {
-  if (metadata?.is_parent || metadata?.is_community) return "community";
-  if (metadata?.linked_parent) return "community_group";
-  if (metadata?.addressing_mode === "lid") return "lid_group";
+  if (metadata?.is_parent === true || metadata?.is_community === true) return "community";
   return "group";
 }
 
 function groupKind(metadata: any) {
-  const type = groupType(metadata);
-  if (type === "community") return "Comunidade";
-  if (type === "community_group") return "Grupo da comunidade";
-  if (type === "lid_group") return "Grupo • LID";
-  return "Grupo";
+  return groupType(metadata) === "community" ? "Comunidade" : "Grupo";
 }
 
 function groupIcon(metadata: any) {
-  const type = groupType(metadata);
-  if (type === "community") return "◉";
-  if (type === "community_group") return "↳";
-  if (type === "lid_group") return "◇";
-  return "◎";
+  return groupType(metadata) === "community" ? "◉" : "◎";
 }
 
 function groupBadgeClass(metadata: any) {
-  const type = groupType(metadata);
-  if (type === "community") return "ok";
-  if (type === "community_group") return "warn";
-  if (type === "lid_group") return "";
-  return "";
+  return groupType(metadata) === "community" ? "ok" : "";
+}
+
+function identityMode(metadata: any) {
+  return metadata?.addressing_mode === "lid" ? "LID" : "Telefone/JID";
 }
 
 function filterHref(instanceId: string, type: TypeFilter) {
@@ -66,6 +59,7 @@ function GroupTable({ groups }: { groups: any[] }) {
           <tr>
             <th>Tipo</th>
             <th>Nome</th>
+            <th>Identidade</th>
             <th>ID</th>
             <th>Participantes</th>
             <th>Monitoramento</th>
@@ -81,18 +75,18 @@ function GroupTable({ groups }: { groups: any[] }) {
               </td>
               <td>
                 <div style={{ fontWeight: 700 }}>{group.name || "Sem nome"}</div>
-                {group.metadata?.linked_parent ? (
-                  <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>
-                    Ligado à comunidade {group.metadata.linked_parent}
-                  </div>
-                ) : null}
+              </td>
+              <td>
+                <span className={`badge ${group.metadata?.addressing_mode === "lid" ? "warn" : ""}`}>
+                  {identityMode(group.metadata)}
+                </span>
               </td>
               <td>{group.external_id}</td>
               <td>{group.member_count ?? "—"}</td>
               <td><MonitorToggle id={group.id} initialEnabled={Boolean(group.monitoring_enabled)} /></td>
             </tr>
           ))}
-          {!groups.length ? <tr><td colSpan={5}>Nenhum item nesta categoria.</td></tr> : null}
+          {!groups.length ? <tr><td colSpan={6}>Nenhum item nesta categoria.</td></tr> : null}
         </tbody>
       </table>
     </div>
@@ -111,7 +105,7 @@ export default async function Page({ searchParams }: { searchParams?: { instance
   const selectedId = searchParams?.instance || monitors?.[0]?.id || "";
   const selectedMonitor = (monitors ?? []).find((item) => item.id === selectedId) ?? null;
   const requestedType = String(searchParams?.type || "all");
-  const selectedType: TypeFilter = ["group", "community", "community_group", "lid_group"].includes(requestedType)
+  const selectedType: TypeFilter = ["group", "community"].includes(requestedType)
     ? requestedType as TypeFilter
     : "all";
 
@@ -127,10 +121,8 @@ export default async function Page({ searchParams }: { searchParams?: { instance
   const allGroups = (groups ?? []) as any[];
   const normalGroups = allGroups.filter((g) => groupType(g.metadata) === "group");
   const communities = allGroups.filter((g) => groupType(g.metadata) === "community");
-  const communityGroups = allGroups.filter((g) => groupType(g.metadata) === "community_group");
-  const lidGroups = allGroups.filter((g) => groupType(g.metadata) === "lid_group");
+  const lidIdentityCount = allGroups.filter((g) => g.metadata?.addressing_mode === "lid").length;
   const monitoredCount = allGroups.filter((g) => g.monitoring_enabled).length;
-  const communityCount = communities.length + communityGroups.length;
 
   const filteredGroups = selectedType === "all"
     ? allGroups
@@ -198,7 +190,7 @@ export default async function Page({ searchParams }: { searchParams?: { instance
       <div className="topbar">
         <div>
           <h1>Grupos & comunidades</h1>
-          <div className="subtitle">Grupos normais e estruturas de comunidade agora ficam identificados separadamente. Leads por telefone ou @lid continuam usando o mesmo monitoramento.</div>
+          <div className="subtitle">Agora o tipo da estrutura é separado da identidade. Um grupo pode usar LID sem ser uma comunidade.</div>
         </div>
         <div className="toolbar">
           <AutoRefresh intervalMs={1000} />
@@ -238,7 +230,7 @@ export default async function Page({ searchParams }: { searchParams?: { instance
                 Webhook {selectedMonitor.webhook_enabled ? "ativo" : "pendente"}
               </span>
               <span className="badge">{allGroups.length} total</span>
-              {communityCount ? <span className="badge ok">{communityCount} de comunidade</span> : null}
+              <span className="badge">{lidIdentityCount} usando LID</span>
               <span className="badge ok">{monitoredCount} monitorando</span>
             </div>
           </div>
@@ -268,21 +260,20 @@ export default async function Page({ searchParams }: { searchParams?: { instance
       ) : null}
 
       <div className="instance-summary-grid" style={{ marginBottom: 18 }}>
-        <div className="card"><div className="label">Grupos normais</div><div className="metric">{normalGroups.length}</div></div>
+        <div className="card"><div className="label">Grupos</div><div className="metric">{normalGroups.length}</div></div>
         <div className="card"><div className="label">Comunidades</div><div className="metric">{communities.length}</div></div>
-        <div className="card"><div className="label">Grupos da comunidade</div><div className="metric">{communityGroups.length}</div></div>
-        <div className="card"><div className="label">Grupos LID</div><div className="metric">{lidGroups.length}</div></div>
+        <div className="card"><div className="label">Estruturas usando LID</div><div className="metric">{lidIdentityCount}</div></div>
+        <div className="card"><div className="label">Monitorando</div><div className="metric">{monitoredCount}</div></div>
       </div>
 
       <div className="card" style={{ marginBottom: 18 }}>
         <div className="section-title">Filtrar por tipo</div>
+        <div className="muted" style={{ marginTop: 4 }}>LID agora é apenas um modo de identidade, não um tipo de grupo.</div>
         <div className="toolbar" style={{ marginTop: 10 }}>
           {([
             ["all", `Todos (${allGroups.length})`],
             ["group", `Grupos (${normalGroups.length})`],
             ["community", `Comunidades (${communities.length})`],
-            ["community_group", `Grupos da comunidade (${communityGroups.length})`],
-            ["lid_group", `LID (${lidGroups.length})`],
           ] as Array<[TypeFilter, string]>).map(([type, label]) => (
             <Link
               key={type}
@@ -298,9 +289,7 @@ export default async function Page({ searchParams }: { searchParams?: { instance
       {selectedType === "all" ? (
         <div style={{ display: "grid", gap: 24 }}>
           {communities.length ? <section><div className="section-title" style={{ marginBottom: 10 }}>◉ Comunidades</div><GroupTable groups={communities} /></section> : null}
-          {communityGroups.length ? <section><div className="section-title" style={{ marginBottom: 10 }}>↳ Grupos das comunidades</div><GroupTable groups={communityGroups} /></section> : null}
-          {lidGroups.length ? <section><div className="section-title" style={{ marginBottom: 10 }}>◇ Grupos com identidade LID</div><GroupTable groups={lidGroups} /></section> : null}
-          {normalGroups.length ? <section><div className="section-title" style={{ marginBottom: 10 }}>◎ Grupos normais</div><GroupTable groups={normalGroups} /></section> : null}
+          {normalGroups.length ? <section><div className="section-title" style={{ marginBottom: 10 }}>◎ Grupos</div><GroupTable groups={normalGroups} /></section> : null}
           {!allGroups.length ? <GroupTable groups={[]} /> : null}
         </div>
       ) : (
