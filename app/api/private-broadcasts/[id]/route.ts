@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseSession } from "@/lib/supabase/session";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requireTenantId } from "@/lib/tenant";
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -7,7 +7,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const accountId = requireTenantId();
     const body = await req.json();
     const status = body?.status === "active" ? "active" : "paused";
-    const supabase = getSupabaseSession();
+    const supabase = getSupabaseAdmin();
     const now = new Date().toISOString();
     const { data, error } = await supabase.from("private_broadcasts").update({ status, updated_at: now }).eq("id", params.id).eq("account_id", accountId).select("*").single();
     if (error) throw error;
@@ -25,7 +25,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
   try {
     const accountId = requireTenantId();
-    const supabase = getSupabaseSession();
+    const supabase = getSupabaseAdmin();
     const now = new Date().toISOString();
     const { error } = await supabase.from("private_broadcasts").update({ status: "archived", updated_at: now }).eq("id", params.id).eq("account_id", accountId);
     if (error) throw error;
