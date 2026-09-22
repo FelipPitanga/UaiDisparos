@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseSession } from "@/lib/supabase/session";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requireTenantId } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
@@ -51,7 +51,7 @@ async function getJson(url: string, token: string) {
 export async function POST() {
   try {
     const accountId = requireTenantId();
-    const supabase = getSupabaseSession();
+    const supabase = getSupabaseAdmin();
     const { data: instances, error } = await supabase
       .from("instances")
       .select("id,name,status,phone,instance_role,base_url,api_token,send_blocked_until,send_block_code,disconnect_probe_count,disconnect_first_seen_at")
