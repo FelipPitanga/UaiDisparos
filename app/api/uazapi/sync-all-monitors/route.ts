@@ -212,7 +212,7 @@ async function captureParticipants(
           groupExternalId: dbGroup.external_id,
           identity,
           sourceTimestamp: now,
-        });
+        }, supabase);
       } catch {
         // Nunca perde o lead só porque a fila/campanha teve algum problema.
       }
