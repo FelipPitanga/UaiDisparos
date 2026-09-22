@@ -1,4 +1,4 @@
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { getSupabaseSession } from "@/lib/supabase/session";
 import { requireTenantId } from "@/lib/tenant";
 import LiveRefresh from "../disparos/LiveRefresh";
 import OperationsManager from "./OperationsManager";
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function OperationsPage() {
   const accountId = requireTenantId();
-  const supabase = getSupabaseAdmin();
+  const supabase = getSupabaseSession();
 
   const [groupOpsResult, privateOpsResult, campaignsResult, instancesResult, groupsResult] = await Promise.all([
     supabase.from("group_automations").select("id,group_id,campaign_id,campaign_ids,sender_instance_id,sender_instance_ids,active,created_at").eq("account_id", accountId).order("created_at", { ascending: false }),
