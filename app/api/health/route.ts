@@ -1,30 +1,39 @@
 import { NextResponse } from "next/server";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-export function GET() {
-  const checks = {
-    supabaseUrl: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
-    supabaseServerKey: Boolean(
-      process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY,
-    ),
-    uazapiBaseUrl: Boolean(process.env.UAZAPI_BASE_URL),
-    uazapiAdminToken: Boolean(process.env.UAZAPI_ADMIN_TOKEN),
-    uazapiWebhookUrl: Boolean(process.env.UAZAPI_WEBHOOK_URL),
-  };
+export async function GET() {
+  let supabaseServerAccess = false;
+  let supabaseError: string | null = null;
 
-  const ok = Object.values(checks).every(Boolean);
+  try {
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase
+      .from("accounts")
+      .select("id", { count: "exact", head: true });
+
+    if (error) throw error;
+    supabaseServerAccess = true;
+  } catch (error) {
+    supabaseError = error instanceof Error ? error.message : "Falha desconhecida no Supabase.";
+  }
+
+  const checks = {
+    supabaseServerAccess,
+  };
 
   return NextResponse.json(
     {
-      ok,
+      ok: supabaseServerAccess,
       service: "UaiDisparos",
       runtime: "cloudflare-worker",
       checks,
+      supabaseError,
       checkedAt: new Date().toISOString(),
     },
     {
-      status: ok ? 200 : 503,
+      status: supabaseServerAccess ? 200 : 503,
       headers: {
         "Cache-Control": "no-store",
       },
