@@ -50,11 +50,17 @@ export async function GET() {
       },
     });
   } catch (error) {
+    const detail = error instanceof Error
+      ? error.message
+      : error && typeof error === "object"
+        ? [error.message, error.details, error.hint, error.code].filter(Boolean).map(String).join(" | ")
+        : String(error || "Erro desconhecido.");
+
     return NextResponse.json(
       {
         ok: false,
         error: "Falha ao consultar a conta no Supabase.",
-        detail: error instanceof Error ? error.message : "Erro desconhecido.",
+        detail,
       },
       { status: 500 },
     );
