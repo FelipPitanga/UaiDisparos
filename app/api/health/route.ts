@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { SUPABASE_URL } from "@/lib/supabase/config";
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 
 export const dynamic = "force-dynamic";
 
@@ -16,45 +17,50 @@ function describe(error: unknown) {
   return String(error || "Erro desconhecido.");
 }
 
-function projectRef() {
-  try {
-    return SUPABASE_URL ? new URL(SUPABASE_URL).hostname.split(".")[0] : null;
-  } catch {
-    return null;
-  }
-}
-
 export async function GET() {
+  let projectReachable = false;
   let adminAccess = false;
-  let errorMessage: string | null = null;
+  let projectError: string | null = null;
+  let adminError: string | null = null;
 
   try {
-    if (!SUPABASE_URL) throw new Error("NEXT_PUBLIC_SUPABASE_URL não está configurada.");
-    const supabase = getSupabaseAdmin();
-    const { error } = await supabase
-      .from("accounts")
-      .select("id", { count: "exact", head: true });
+    const client = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { error } = await client.from("accounts").select("id", { count: "exact", head: true });
+    if (error) throw error;
+    projectReachable = true;
+  } catch (error) {
+    projectError = describe(error);
+  }
 
+  try {
+    const admin = getSupabaseAdmin();
+    const { error } = await admin.from("accounts").select("id", { count: "exact", head: true });
     if (error) throw error;
     adminAccess = true;
   } catch (error) {
-    errorMessage = describe(error);
+    adminError = describe(error);
   }
 
   return NextResponse.json(
     {
-      ok: adminAccess,
+      ok: projectReachable,
       service: "UaiDisparos",
       runtime: "cloudflare-worker",
       checks: {
-        supabaseAdminAccess: adminAccess,
-        supabaseProject: projectRef(),
+        supabaseProject: "ykiuehczcjuskeoyqmqm",
+        projectReachable,
+        backgroundAdminReady: adminAccess,
       },
-      error: errorMessage,
+      errors: {
+        project: projectError,
+        backgroundAdmin: adminError,
+      },
       checkedAt: new Date().toISOString(),
     },
     {
-      status: adminAccess ? 200 : 503,
+      status: projectReachable ? 200 : 503,
       headers: { "Cache-Control": "no-store" },
     },
   );
