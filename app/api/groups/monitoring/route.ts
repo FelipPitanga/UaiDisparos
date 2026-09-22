@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseSession } from "@/lib/supabase/session";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requireTenantId } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "group_id_required" }, { status: 400 });
     }
 
-    const supabase = getSupabaseSession();
+    const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from("groups")
       .update({ monitoring_enabled: enabled, updated_at: new Date().toISOString() })
