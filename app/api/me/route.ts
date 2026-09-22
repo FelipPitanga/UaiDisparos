@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { getSupabaseSession } from "@/lib/supabase/session";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +27,7 @@ export async function GET() {
   }
 
   try {
-    const supabase = getSupabaseAdmin();
+    const supabase = getSupabaseSession();
     const [profileResult, accountResult, instancesResult] = await Promise.all([
       supabase.from("profiles").select("name,email,role").eq("user_id", userId).maybeSingle(),
       supabase.from("accounts").select("id,name,status,instance_limit,permissions").eq("id", accountId).maybeSingle(),
