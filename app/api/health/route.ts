@@ -1,11 +1,26 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { getSupabaseAdmin, getSupabaseServerKeyInfo } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
+
+function describeError(error: unknown) {
+  if (error instanceof Error) return error.message;
+
+  if (error && typeof error === "object") {
+    const value = error as Record<string, unknown>;
+    return [value.message, value.details, value.hint, value.code]
+      .filter(Boolean)
+      .map(String)
+      .join(" | ");
+  }
+
+  return String(error || "Erro desconhecido.");
+}
 
 export async function GET() {
   let supabaseServerAccess = false;
   let supabaseError: string | null = null;
+  const keyInfo = getSupabaseServerKeyInfo();
 
   try {
     const supabase = getSupabaseAdmin();
@@ -16,27 +31,26 @@ export async function GET() {
     if (error) throw error;
     supabaseServerAccess = true;
   } catch (error) {
-    supabaseError = error instanceof Error ? error.message : "Falha desconhecida no Supabase.";
+    supabaseError = describeError(error);
   }
-
-  const checks = {
-    supabaseServerAccess,
-  };
 
   return NextResponse.json(
     {
       ok: supabaseServerAccess,
       service: "UaiDisparos",
       runtime: "cloudflare-worker",
-      checks,
+      checks: {
+        supabaseServerAccess,
+        serverCredentialConfigured: keyInfo.configured,
+        serverCredentialSource: keyInfo.source,
+        serverCredentialType: keyInfo.type,
+      },
       supabaseError,
       checkedAt: new Date().toISOString(),
     },
     {
       status: supabaseServerAccess ? 200 : 503,
-      headers: {
-        "Cache-Control": "no-store",
-      },
+      headers: { "Cache-Control": "no-store" },
     },
   );
 }
