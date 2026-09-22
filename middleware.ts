@@ -6,6 +6,24 @@ type PermissionKey =
   | "overview" | "instances" | "groups" | "leads" | "campaigns"
   | "group_broadcast" | "private_broadcast" | "operations" | "notifications" | "settings";
 
+type SupabaseCookieOptions = {
+  domain?: string;
+  expires?: Date;
+  httpOnly?: boolean;
+  maxAge?: number;
+  path?: string;
+  sameSite?: boolean | "lax" | "strict" | "none";
+  secure?: boolean;
+  priority?: "low" | "medium" | "high";
+  partitioned?: boolean;
+};
+
+type SupabaseCookieToSet = {
+  name: string;
+  value: string;
+  options?: SupabaseCookieOptions;
+};
+
 const AUTH_PAGES = ["/login", "/cadastro"];
 const PASS_THROUGH_PAGES = ["/sem-acesso", "/conta-bloqueada"];
 const PUBLIC_API_PREFIXES = [
@@ -81,7 +99,7 @@ export async function middleware(request: NextRequest) {
   const supabase = createServerClient(url, anon, {
     cookies: {
       getAll() { return request.cookies.getAll(); },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet: SupabaseCookieToSet[]) {
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
         response = NextResponse.next({ request: { headers: requestHeaders } });
         cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
