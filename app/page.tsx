@@ -14,7 +14,10 @@ async function count(table: string, accountId: string, filters?: (q: any) => any
   let query = supabase.from(table).select("*", { count: "exact", head: true }).eq("account_id", accountId);
   if (filters) query = filters(query);
   const { count, error } = await query;
-  if (error) throw error;
+  if (error) {
+    console.error("[UAI dashboard] count failed", { table, accountId, message: error.message });
+    return 0;
+  }
   return count ?? 0;
 }
 
