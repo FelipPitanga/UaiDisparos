@@ -121,6 +121,29 @@ export default function TeamManager() {
     }
   }
 
+  async function deleteMember(member: Member) {
+    const label = member.name || member.email || "este usuário";
+    const confirmed = window.confirm(
+      `Excluir "${label}"?\n\nEsse acesso será removido definitivamente e a pessoa não conseguirá mais entrar no sistema.`,
+    );
+    if (!confirmed) return;
+
+    setBusy(`delete:${member.user_id}`);
+    setError("");
+
+    try {
+      const response = await fetch(`/api/admin/team/${member.user_id}`, { method: "DELETE" });
+      const body = await response.json();
+      if (!response.ok || !body?.ok) throw new Error(body?.error || "Erro ao excluir usuário.");
+
+      setMembers((current) => current.filter((item) => item.user_id !== member.user_id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao excluir usuário.");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function switchAccount(value: string) {
     setAccountId(value);
     setError("");
@@ -224,9 +247,22 @@ export default function TeamManager() {
                 </div>
 
                 {!isSuperAdmin ? (
-                  <button className="btn primary" disabled={busy === member.user_id} onClick={() => saveMember({ ...member, permissions })}>
-                    {busy === member.user_id ? "Salvando..." : "Salvar acesso"}
-                  </button>
+                  <div className="row" style={{ gap: 8 }}>
+                    <button
+                      className="btn danger-btn"
+                      disabled={busy === member.user_id || busy === `delete:${member.user_id}`}
+                      onClick={() => deleteMember(member)}
+                    >
+                      {busy === `delete:${member.user_id}` ? "Excluindo..." : "Excluir usuário"}
+                    </button>
+                    <button
+                      className="btn primary"
+                      disabled={busy === member.user_id || busy === `delete:${member.user_id}`}
+                      onClick={() => saveMember({ ...member, permissions })}
+                    >
+                      {busy === member.user_id ? "Salvando..." : "Salvar acesso"}
+                    </button>
+                  </div>
                 ) : null}
               </div>
 
