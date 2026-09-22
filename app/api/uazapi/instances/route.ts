@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseSession } from "@/lib/supabase/session";
-import { requireTenantId } from "@/lib/tenant";
+import { getTenantContext } from "@/lib/tenant";
 
 function cleanName(value: unknown) {
   return String(value ?? "").trim().replace(/\s+/g, " ").slice(0, 80);
@@ -8,7 +8,8 @@ function cleanName(value: unknown) {
 
 export async function POST(request: Request) {
   try {
-    const accountId = requireTenantId();
+    const context = getTenantContext();
+    const accountId = context.accountId;
     const baseUrl = process.env.UAZAPI_BASE_URL?.replace(/\/$/, "");
     const adminToken = process.env.UAZAPI_ADMIN_TOKEN;
     if (!baseUrl || !adminToken) {
@@ -17,11 +18,27 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
     const name = cleanName(body?.name);
-    const role = body?.role === "monitor" ? "monitor" : body?.role === "sender" ? "sender" : null;
+    const requestedRole = body?.role === "monitor" ? "monitor" : body?.role === "sender" ? "sender" : null;
     if (!name) return NextResponse.json({ ok: false, error: "Informe um nome para a instância." }, { status: 400 });
-    if (!role) return NextResponse.json({ ok: false, error: "Escolha Monitorador ou Disparador. Cada instância deve ter uma única função." }, { status: 400 });
 
     const supabase = getSupabaseSession();
+    const { data: currentProfile } = await supabase
+      .from("profiles")
+      .select("permissions")
+      .eq("user_id", context.userId)
+      .maybeSingle();
+
+    const userPermissions = currentProfile?.permissions && typeof currentProfile.permissions === "object"
+      ? currentProfile.permissions as Record<string, boolean>
+      : null;
+    const connectorOnly = context.role !== "super_admin"
+      && userPermissions?.overview === true
+      && userPermissions?.instances === true
+      && ["groups","leads","campaigns","group_broadcast","private_broadcast","operations","notifications","settings"]
+        .every((key) => userPermissions?.[key] !== true);
+
+    const role = connectorOnly ? "sender" : requestedRole;
+    if (!role) return NextResponse.json({ ok: false, error: "Escolha Monitorador ou Disparador. Cada instância deve ter uma única função." }, { status: 400 });
     const [{ data: account }, { count: used }, { data: existing }] = await Promise.all([
       supabase.from("accounts").select("id,status,instance_limit").eq("id", accountId).single(),
       supabase.from("instances").select("*", { count: "exact", head: true }).eq("account_id", accountId),
