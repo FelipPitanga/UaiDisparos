@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseSession } from "@/lib/supabase/session";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,7 @@ function cleanUrl(value: unknown) {
 
 export async function GET() {
   try {
-    const supabase = getSupabaseSession();
+    const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from("notification_settings")
       .select("group_sent_url,private_sent_url,disconnected_url,updated_at")
@@ -52,7 +52,7 @@ export async function PUT(request: Request) {
       }
     }
 
-    const supabase = getSupabaseSession();
+    const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from("notification_settings")
       .upsert({ id: 1, ...values }, { onConflict: "id" })
