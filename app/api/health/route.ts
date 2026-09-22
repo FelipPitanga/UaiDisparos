@@ -16,11 +16,20 @@ function describe(error: unknown) {
   return String(error || "Erro desconhecido.");
 }
 
+function projectRef() {
+  try {
+    return SUPABASE_URL ? new URL(SUPABASE_URL).hostname.split(".")[0] : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET() {
   let adminAccess = false;
   let errorMessage: string | null = null;
 
   try {
+    if (!SUPABASE_URL) throw new Error("NEXT_PUBLIC_SUPABASE_URL não está configurada.");
     const supabase = getSupabaseAdmin();
     const { error } = await supabase
       .from("accounts")
@@ -39,7 +48,7 @@ export async function GET() {
       runtime: "cloudflare-worker",
       checks: {
         supabaseAdminAccess: adminAccess,
-        supabaseProject: new URL(SUPABASE_URL).hostname.split(".")[0],
+        supabaseProject: projectRef(),
       },
       error: errorMessage,
       checkedAt: new Date().toISOString(),
