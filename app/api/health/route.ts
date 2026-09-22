@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin, getSupabaseServerKeyInfo } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 
 export const dynamic = "force-dynamic";
 
-function describeError(error: unknown) {
+function errorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
-
   if (error && typeof error === "object") {
     const value = error as Record<string, unknown>;
     return [value.message, value.details, value.hint, value.code]
@@ -13,44 +13,37 @@ function describeError(error: unknown) {
       .map(String)
       .join(" | ");
   }
-
   return String(error || "Erro desconhecido.");
 }
 
 export async function GET() {
-  let supabaseServerAccess = false;
-  let supabaseError: string | null = null;
-  const keyInfo = getSupabaseServerKeyInfo();
+  let databaseReachable = false;
+  let databaseError: string | null = null;
 
   try {
-    const supabase = getSupabaseAdmin();
+    const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
     const { error } = await supabase
       .from("accounts")
       .select("id", { count: "exact", head: true });
 
     if (error) throw error;
-    supabaseServerAccess = true;
+    databaseReachable = true;
   } catch (error) {
-    supabaseError = describeError(error);
+    databaseError = errorMessage(error);
   }
 
   return NextResponse.json(
     {
-      ok: supabaseServerAccess,
+      ok: databaseReachable,
       service: "UaiDisparos",
       runtime: "cloudflare-worker",
-      checks: {
-        supabaseServerAccess,
-        serverCredentialConfigured: keyInfo.configured,
-        serverCredentialSource: keyInfo.source,
-        serverCredentialType: keyInfo.type,
-      },
-      supabaseError,
+      checks: { databaseReachable, supabaseProject: "ykiuehczcjuskeoyqmqm" },
+      databaseError,
       checkedAt: new Date().toISOString(),
     },
-    {
-      status: supabaseServerAccess ? 200 : 503,
-      headers: { "Cache-Control": "no-store" },
-    },
+    { status: databaseReachable ? 200 : 503, headers: { "Cache-Control": "no-store" } },
   );
 }
