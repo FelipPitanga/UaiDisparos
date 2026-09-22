@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseSession } from "@/lib/supabase/session";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requireTenantId } from "@/lib/tenant";
 
 function cleanName(value: unknown) {
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     if (!name) return NextResponse.json({ ok: false, error: "Informe um nome para a instância." }, { status: 400 });
     if (!role) return NextResponse.json({ ok: false, error: "Escolha Monitorador ou Disparador. Cada instância deve ter uma única função." }, { status: 400 });
 
-    const supabase = getSupabaseSession();
+    const supabase = getSupabaseAdmin();
     const [{ data: account }, { count: used }, { data: existing }] = await Promise.all([
       supabase.from("accounts").select("id,status,instance_limit").eq("id", accountId).single(),
       supabase.from("instances").select("*", { count: "exact", head: true }).eq("account_id", accountId),
