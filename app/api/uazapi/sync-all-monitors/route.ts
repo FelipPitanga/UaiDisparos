@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { UazapiProvider } from "@/lib/providers/uazapi";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { getSupabaseSession } from "@/lib/supabase/session";
 import { enqueueForAutomation } from "@/lib/automation";
 import { requireTenantId } from "@/lib/tenant";
 
@@ -62,7 +62,7 @@ function normalizeParticipant(participant: UazParticipant) {
 }
 
 async function captureParticipants(
-  supabase: ReturnType<typeof getSupabaseAdmin>,
+  supabase: ReturnType<typeof getSupabaseSession>,
   monitor: { id: string; name: string },
   dbGroup: { id: string; external_id: string; name: string; monitoring_enabled: boolean },
   participants: UazParticipant[],
@@ -235,7 +235,7 @@ async function captureParticipants(
 export async function POST() {
   try {
     const accountId = requireTenantId();
-    const supabase = getSupabaseAdmin();
+    const supabase = getSupabaseSession();
     const { data: monitors, error } = await supabase
       .from("instances")
       .select("id,name,status,instance_role,base_url,api_token")
