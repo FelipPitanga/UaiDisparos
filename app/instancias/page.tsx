@@ -1,4 +1,4 @@
-import { getSupabaseSession } from "@/lib/supabase/session";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requireTenantId } from "@/lib/tenant";
 import InstancesManager from "./InstancesManager";
 import InstanceHealthPanel from "./InstanceHealthPanel";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Page() {
   const accountId = requireTenantId();
-  const supabase = getSupabaseSession();
+  const supabase = getSupabaseAdmin();
 
   const [instancesResult, accountResult] = await Promise.all([
     supabase
