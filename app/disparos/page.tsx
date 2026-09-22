@@ -1,4 +1,4 @@
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { getSupabaseSession } from "@/lib/supabase/session";
 import { requireTenantId } from "@/lib/tenant";
 import DisparosManager from "./DisparosManager";
 
@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export default async function DisparosPage() {
   const accountId = requireTenantId();
-  const supabase = getSupabaseAdmin();
+  const supabase = getSupabaseSession();
 
   const [campaignsResult, sendersResult, groupsResult] = await Promise.all([
     supabase.from("campaigns").select("id,name,text_content").eq("account_id", accountId).eq("status", "active").order("created_at", { ascending: false }),
