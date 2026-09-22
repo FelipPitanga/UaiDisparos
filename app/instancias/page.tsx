@@ -10,7 +10,7 @@ export default async function Page() {
   const accountId = requireTenantId();
   const supabase = getSupabaseAdmin();
 
-  const [{ data }, { data: account }] = await Promise.all([
+  const [instancesResult, accountResult] = await Promise.all([
     supabase
       .from("instances")
       .select("id,name,status,instance_role,phone,last_seen_at,created_at,send_blocked_until,send_block_reason,send_block_code")
@@ -23,8 +23,11 @@ export default async function Page() {
       .single(),
   ]);
 
-  const instances = (data ?? []) as any[];
-  const limit = Number(account?.instance_limit || 0);
+  if (instancesResult.error) throw instancesResult.error;
+  if (accountResult.error) throw accountResult.error;
+
+  const instances = (instancesResult.data ?? []) as any[];
+  const limit = Number(accountResult.data?.instance_limit || 0);
 
   return (
     <>
