@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseSession } from "@/lib/supabase/session";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requireTenantId } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     if (!name) return NextResponse.json({ ok: false, error: "Informe o nome da campanha." }, { status: 400 });
     if (!text && !mediaUrl) return NextResponse.json({ ok: false, error: "Informe texto ou mídia." }, { status: 400 });
 
-    const supabase = getSupabaseSession();
+    const supabase = getSupabaseAdmin();
     const { data, error } = await supabase.from("campaigns").insert({
       account_id: accountId,
       name,
