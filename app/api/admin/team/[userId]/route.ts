@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseSession } from "@/lib/supabase/session";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requireSuperAdmin, type PermissionKey } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
@@ -57,6 +58,72 @@ export async function PATCH(req: NextRequest, { params }: { params: { userId: st
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "Erro ao atualizar colaboradora." },
+      { status: 500 },
+    );
+  }
+}
+
+
+export async function DELETE(_req: NextRequest, { params }: { params: { userId: string } }) {
+  try {
+    requireSuperAdmin();
+    const userId = String(params.userId || "");
+    const supabase = getSupabaseSession();
+
+    const { data: current, error: currentError } = await supabase
+      .from("profiles")
+      .select("user_id,account_id,name,email,role")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (currentError) throw currentError;
+    if (!current) {
+      return NextResponse.json({ ok: false, error: "Usuário não encontrado." }, { status: 404 });
+    }
+    if (current.role === "super_admin") {
+      return NextResponse.json(
+        { ok: false, error: "O super administrador principal não pode ser excluído." },
+        { status: 400 },
+      );
+    }
+
+    const [{ data: account, error: accountError }, { count: accountUsers, error: countError }] = await Promise.all([
+      supabase
+        .from("accounts")
+        .select("id,is_primary,name")
+        .eq("id", current.account_id)
+        .maybeSingle(),
+      supabase
+        .from("profiles")
+        .select("*", { count: "exact", head: true })
+        .eq("account_id", current.account_id),
+    ]);
+
+    if (accountError) throw accountError;
+    if (countError) throw countError;
+
+    if (account && !account.is_primary && Number(accountUsers || 0) <= 1) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Esse é o único usuário dessa conta. Suspenda ou gerencie a conta pelo painel de clientes em vez de deixá-la sem acesso.",
+        },
+        { status: 400 },
+      );
+    }
+
+    const admin = getSupabaseAdmin();
+    const { error: deleteError } = await admin.auth.admin.deleteUser(userId);
+    if (deleteError) throw deleteError;
+
+    return NextResponse.json({
+      ok: true,
+      deleted_user_id: userId,
+      deleted_email: current.email,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : "Erro ao excluir usuário." },
       { status: 500 },
     );
   }
