@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { getSupabaseSession } from "@/lib/supabase/session";
 import { requireTenantId } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +30,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     if (!name) return NextResponse.json({ ok: false, error: "Informe o nome da campanha." }, { status: 400 });
 
-    const supabase = getSupabaseAdmin();
+    const supabase = getSupabaseSession();
     const { data, error } = await supabase.from("campaigns").update({
       name,
       status,
@@ -52,7 +52,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
   try {
     const accountId = requireTenantId();
-    const supabase = getSupabaseAdmin();
+    const supabase = getSupabaseSession();
     const now = new Date().toISOString();
     const { error } = await supabase.from("campaigns").update({ status: "archived", updated_at: now }).eq("id", params.id).eq("account_id", accountId);
     if (error) throw error;
