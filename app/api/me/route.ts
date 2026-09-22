@@ -29,7 +29,7 @@ export async function GET() {
   try {
     const supabase = getSupabaseSession();
     const [profileResult, accountResult, instancesResult] = await Promise.all([
-      supabase.from("profiles").select("name,email,role").eq("user_id", userId).maybeSingle(),
+      supabase.from("profiles").select("name,email,role,permissions").eq("user_id", userId).maybeSingle(),
       supabase.from("accounts").select("id,name,status,instance_limit,permissions").eq("id", accountId).maybeSingle(),
       supabase.from("instances").select("*", { count: "exact", head: true }).eq("account_id", accountId),
     ]);
@@ -49,11 +49,27 @@ export async function GET() {
       );
     }
 
+    const accountPermissions = (account.permissions || {}) as Record<string, boolean>;
+    const profilePermissions = profile.permissions && typeof profile.permissions === "object"
+      ? profile.permissions as Record<string, boolean>
+      : null;
+    const effectivePermissions = role === "super_admin"
+      ? accountPermissions
+      : (profilePermissions ?? accountPermissions);
+
     return NextResponse.json({
       ok: true,
-      user: { id: userId, name: profile.name, email: profile.email, role },
+      user: {
+        id: userId,
+        name: profile.name,
+        email: profile.email,
+        role,
+        permissions: effectivePermissions,
+      },
       account: {
         ...account,
+        permissions: effectivePermissions,
+        account_permissions: accountPermissions,
         used_instances: usedInstances,
         available_instances: Math.max(0, Number(account.instance_limit || 0) - Number(usedInstances)),
       },
