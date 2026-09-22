@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { UazapiProvider } from "@/lib/providers/uazapi";
-import { getSupabaseSession } from "@/lib/supabase/session";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requireTenantId } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "Escolha uma instância monitoradora." }, { status: 400 });
     }
 
-    const supabase = getSupabaseSession();
+    const supabase = getSupabaseAdmin();
     const { data: instance, error: instanceError } = await supabase
       .from("instances")
       .select("id,name,status,instance_role,base_url,api_token")
