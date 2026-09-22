@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Activity, Bell, Megaphone, RadioTower, Send, Smartphone, UserRound, Users } from "lucide-react";
-import { getSupabaseSession } from "@/lib/supabase/session";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requireTenantId } from "@/lib/tenant";
 import LiveRefresh from "./disparos/LiveRefresh";
 import LiveOverviewChart from "./components/LiveOverviewChart";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 const TIME_ZONE = "America/Sao_Paulo";
 
 async function count(table: string, accountId: string, filters?: (q: any) => any) {
-  const supabase = getSupabaseSession();
+  const supabase = getSupabaseAdmin();
   let query = supabase.from(table).select("*", { count: "exact", head: true }).eq("account_id", accountId);
   if (filters) query = filters(query);
   const { count, error } = await query;
@@ -71,7 +71,7 @@ function eventLabel(type: string | null) {
 
 export default async function Page() {
   const accountId = requireTenantId();
-  const supabase = getSupabaseSession();
+  const supabase = getSupabaseAdmin();
   const days = buildLast7Days();
   const dayKeys = new Set(days.map((d) => d.key));
   const queryCutoff = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
