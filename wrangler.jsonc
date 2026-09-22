@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "uai-disparos",
+  "account_id": "cc0e0dfa790748f45c047138c9fb7da3",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-09-11",
   "compatibility_flags": ["nodejs_compat"],
