@@ -115,7 +115,7 @@ export async function middleware(request: NextRequest) {
   }
 
   const { data: profile } = await supabase.from("profiles")
-    .select("user_id,account_id,name,email,role").eq("user_id", user.id).maybeSingle();
+    .select("user_id,account_id,name,email,role,permissions").eq("user_id", user.id).maybeSingle();
 
   if (!profile) {
     if (isPassThrough) return response;
@@ -139,7 +139,11 @@ export async function middleware(request: NextRequest) {
   }
 
   const role = String(profile.role || "client");
-  const permissions = (account.permissions || {}) as Record<string, boolean>;
+  const accountPermissions = (account.permissions || {}) as Record<string, boolean>;
+  const profilePermissions = profile.permissions && typeof profile.permissions === "object"
+    ? profile.permissions as Record<string, boolean>
+    : null;
+  const permissions = profilePermissions ?? accountPermissions;
   const isSuperAdmin = role === "super_admin";
 
   if (isAuthPage) {
