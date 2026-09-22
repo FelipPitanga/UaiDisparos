@@ -1,10 +1,10 @@
-import { getSupabaseSession } from "@/lib/supabase/session";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 import NotificationSettingsForm from "./NotificationSettingsForm";
 
 export const dynamic = "force-dynamic";
 
 export default async function NotificationsPage() {
-  const supabase = getSupabaseSession();
+  const supabase = getSupabaseAdmin();
   const { data } = await supabase
     .from("notification_settings")
     .select("group_sent_url,private_sent_url,disconnected_url")
