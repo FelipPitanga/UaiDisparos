@@ -62,7 +62,7 @@ function normalizeParticipant(participant: UazParticipant) {
 }
 
 async function captureParticipants(
-  supabase: ReturnType<typeof getSupabaseAdmin>,
+  supabase: ReturnType<typeof getSupabaseSession>,
   monitor: { id: string; name: string },
   dbGroup: { id: string; external_id: string; name: string; monitoring_enabled: boolean },
   participants: UazParticipant[],
