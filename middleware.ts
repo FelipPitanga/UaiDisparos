@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 
 type PermissionKey =
   | "overview" | "instances" | "groups" | "leads" | "campaigns"
@@ -83,8 +84,8 @@ export async function middleware(request: NextRequest) {
   const isPublicApi = PUBLIC_API_PREFIXES.some((path) => pathname === path || pathname.startsWith(path + "/"));
   if (isPublicApi) return NextResponse.next();
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const url = SUPABASE_URL;
+  const anon = SUPABASE_PUBLISHABLE_KEY;
   const secret = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !anon || !secret) {
     return NextResponse.json({ ok: false, error: "Configuração de autenticação incompleta." }, { status: 500 });
