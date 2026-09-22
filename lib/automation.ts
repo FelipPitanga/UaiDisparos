@@ -258,8 +258,11 @@ export async function processJob(jobId: string) {
   }
 }
 
-export async function enqueueForAutomation(params: { leadId: string; groupId: string; groupExternalId: string; identity: string; sourceTimestamp?: string | null }) {
-  const supabase = getSupabaseAdmin();
+export async function enqueueForAutomation(
+  params: { leadId: string; groupId: string; groupExternalId: string; identity: string; sourceTimestamp?: string | null },
+  supabaseOverride?: ReturnType<typeof getSupabaseAdmin>,
+) {
+  const supabase = supabaseOverride ?? getSupabaseAdmin();
   const { data: automation } = await supabase
     .from("group_automations")
     .select("id,campaign_id,sender_instance_id,campaign_ids,sender_instance_ids,delay_seconds,send_interval_seconds,daily_limit_per_sender,active,authorization_confirmed")
