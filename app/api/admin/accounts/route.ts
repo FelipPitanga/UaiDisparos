@@ -22,24 +22,35 @@ async function dashboard() {
   const supabase = getSupabaseSession();
   const [{ data: accounts }, { data: profiles }, { data: instances }, { data: settings }] = await Promise.all([
     supabase.from("accounts").select("id,name,status,instance_limit,permissions,is_primary,created_at").order("is_primary", { ascending: false }).order("created_at"),
-    supabase.from("profiles").select("user_id,account_id,name,email,role,created_at"),
+    supabase.from("profiles").select("user_id,account_id,name,email,role,permissions,created_at").order("created_at"),
     supabase.from("instances").select("id,account_id,status"),
     supabase.from("system_settings").select("global_instance_capacity").eq("id", 1).maybeSingle(),
   ]);
 
-  const profileByAccount = new Map((profiles || []).map((item: any) => [item.account_id, item]));
+  const profilesByAccount = new Map<string, any[]>();
+  for (const item of profiles || []) {
+    const list = profilesByAccount.get(item.account_id) || [];
+    list.push(item);
+    profilesByAccount.set(item.account_id, list);
+  }
   const used = new Map<string, number>();
   for (const item of instances || []) {
     if (!item.account_id) continue;
     used.set(item.account_id, (used.get(item.account_id) || 0) + 1);
   }
 
-  const rows = (accounts || []).map((account: any) => ({
-    ...account,
-    profile: profileByAccount.get(account.id) || null,
-    used_instances: used.get(account.id) || 0,
-    available_instances: Math.max(0, Number(account.instance_limit || 0) - (used.get(account.id) || 0)),
-  }));
+  const rows = (accounts || []).map((account: any) => {
+    const users = profilesByAccount.get(account.id) || [];
+    const primaryProfile = users.find((item: any) => item.role === "super_admin") || users[0] || null;
+    return {
+      ...account,
+      profile: primaryProfile,
+      users,
+      user_count: users.length,
+      used_instances: used.get(account.id) || 0,
+      available_instances: Math.max(0, Number(account.instance_limit || 0) - (used.get(account.id) || 0)),
+    };
+  });
 
   const capacity = Number(settings?.global_instance_capacity || 0);
   const allocated = rows.reduce((sum: number, item: any) => sum + Number(item.instance_limit || 0), 0);
