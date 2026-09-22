@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { getSupabaseSession } from "@/lib/supabase/session";
 import { requireTenantId } from "@/lib/tenant";
 import { enqueueForAutomation } from "@/lib/automation";
 
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Confirme a base de autorização antes de ativar a automação." }, { status: 400 });
     }
 
-    const supabase = getSupabaseAdmin();
+    const supabase = getSupabaseSession();
     const [{ data: group }, campaignsResult, sendersResult] = await Promise.all([
       supabase.from("groups").select("id,external_id,monitoring_enabled").eq("id", groupId).eq("account_id", accountId).single(),
       supabase.from("campaigns").select("id,status").eq("account_id", accountId).in("id", campaignIds),
