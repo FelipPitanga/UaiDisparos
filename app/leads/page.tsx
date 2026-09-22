@@ -1,4 +1,4 @@
-import { getSupabaseSession } from "@/lib/supabase/session";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requireTenantId } from "@/lib/tenant";
 import LiveRefresh from "../disparos/LiveRefresh";
 
@@ -38,7 +38,7 @@ function identityType(lead: { phone?: string | null; lid?: string | null }) {
 
 export default async function Page() {
   const accountId = requireTenantId();
-  const supabase = getSupabaseSession();
+  const supabase = getSupabaseAdmin();
 
   const { data: leads, error } = await supabase
     .from("leads")
