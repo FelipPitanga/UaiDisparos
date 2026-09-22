@@ -125,6 +125,7 @@ export async function middleware(request: NextRequest) {
     .select("user_id,account_id,name,email,role").eq("user_id", user.id).maybeSingle();
 
   if (!profile) {
+    if (isPassThrough) return response;
     if (isApi) return copyCookies(response, NextResponse.json({ ok: false, error: "Perfil da conta não encontrado." }, { status: 403 }));
     const blocked = request.nextUrl.clone();
     blocked.pathname = "/conta-bloqueada";
@@ -136,6 +137,7 @@ export async function middleware(request: NextRequest) {
     .select("id,name,status,instance_limit,permissions").eq("id", profile.account_id).maybeSingle();
 
   if (!account) {
+    if (isPassThrough) return response;
     if (isApi) return copyCookies(response, NextResponse.json({ ok: false, error: "Conta não encontrada." }, { status: 403 }));
     const blocked = request.nextUrl.clone();
     blocked.pathname = "/conta-bloqueada";
