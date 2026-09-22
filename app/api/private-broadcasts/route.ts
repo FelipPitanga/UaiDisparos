@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { getSupabaseSession } from "@/lib/supabase/session";
 import { requireTenantId } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     if (!senderIds.length) return NextResponse.json({ ok: false, error: "Selecione ao menos uma conta disparadora." }, { status: 400 });
     if (!authorizationConfirmed) return NextResponse.json({ ok: false, error: "Confirme que os destinatários autorizaram contato privado." }, { status: 400 });
 
-    const supabase = getSupabaseAdmin();
+    const supabase = getSupabaseSession();
     const [campaignsResult, sendersResult] = await Promise.all([
       supabase.from("campaigns").select("id,status").eq("account_id", accountId).in("id", campaignIds),
       supabase.from("instances").select("id,instance_role").eq("account_id", accountId).in("id", senderIds),
