@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseSession } from "@/lib/supabase/session";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requireTenantId } from "@/lib/tenant";
 
 function normalizeQr(value: unknown) {
@@ -27,7 +27,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
     const accountId = requireTenantId();
-    const supabase = getSupabaseSession();
+    const supabase = getSupabaseAdmin();
     const { data: record, error } = await supabase.from("instances")
       .select("id,name,base_url,api_token,status").eq("id", params.id).eq("account_id", accountId).single();
     if (error || !record) return NextResponse.json({ ok: false, error: "Instância não encontrada." }, { status: 404 });
