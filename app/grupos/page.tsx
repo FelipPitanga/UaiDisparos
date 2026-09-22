@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getSupabaseSession } from "@/lib/supabase/session";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requireTenantId } from "@/lib/tenant";
 import SyncButton from "./SyncButton";
 import AutoRefresh from "./AutoRefresh";
@@ -96,7 +96,7 @@ function GroupTable({ groups }: { groups: any[] }) {
 
 export default async function Page({ searchParams }: { searchParams?: { instance?: string; type?: string } }) {
   const accountId = requireTenantId();
-  const supabase = getSupabaseSession();
+  const supabase = getSupabaseAdmin();
 
   const { data: monitors } = await supabase
     .from("instances")
