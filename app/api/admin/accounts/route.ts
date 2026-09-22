@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
+import { getSupabaseSession } from "@/lib/supabase/session";
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 import { requireSuperAdmin, type PermissionKey } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +19,7 @@ function normalizePermissions(value: unknown) {
 }
 
 async function dashboard() {
-  const supabase = getSupabaseAdmin();
+  const supabase = getSupabaseSession();
   const [{ data: accounts }, { data: profiles }, { data: instances }, { data: settings }] = await Promise.all([
     supabase.from("accounts").select("id,name,status,instance_limit,permissions,is_primary,created_at").order("is_primary", { ascending: false }).order("created_at"),
     supabase.from("profiles").select("user_id,account_id,name,email,role,created_at"),
@@ -78,7 +80,7 @@ export async function POST(req: NextRequest) {
     if (!/^\S+@\S+\.\S+$/.test(email)) return NextResponse.json({ ok: false, error: "Informe um e-mail válido." }, { status: 400 });
     if (password.length < 8) return NextResponse.json({ ok: false, error: "A senha precisa ter pelo menos 8 caracteres." }, { status: 400 });
 
-    const supabase = getSupabaseAdmin();
+    const supabase = getSupabaseSession();
     const [{ data: settings }, { data: accounts }] = await Promise.all([
       supabase.from("system_settings").select("global_instance_capacity").eq("id", 1).single(),
       supabase.from("accounts").select("instance_limit"),
@@ -89,12 +91,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: `O limite ultrapassa a capacidade global. Restam ${Math.max(0, capacity - allocated)} instâncias para distribuir.` }, { status: 400 });
     }
 
-    const { data: created, error: createError } = await supabase.auth.admin.createUser({
-      email, password, email_confirm: true, user_metadata: { name },
+    // Cria o usuário com um cliente Auth isolado. Assim o painel administrativo
+    // não depende da service role e a sessão do super-admin nunca é substituída.
+    const signupClient = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    });
+
+    const { data: created, error: createError } = await signupClient.auth.signUp({
+      email,
+      password,
+      options: { data: { name } },
     });
     if (createError || !created.user) throw createError || new Error("Não foi possível criar o usuário.");
 
-    const { data: profile } = await supabase.from("profiles").select("account_id").eq("user_id", created.user.id).single();
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("account_id")
+      .eq("user_id", created.user.id)
+      .single();
+    if (profileError) throw profileError;
     if (!profile?.account_id) throw new Error("Perfil do cliente não foi criado.");
 
     const { error: accountError } = await supabase.from("accounts").update({
