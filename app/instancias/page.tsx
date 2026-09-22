@@ -1,5 +1,5 @@
 import { getSupabaseSession } from "@/lib/supabase/session";
-import { requireTenantId } from "@/lib/tenant";
+import { getTenantContext } from "@/lib/tenant";
 import InstancesManager from "./InstancesManager";
 import InstanceHealthPanel from "./InstanceHealthPanel";
 import LiveRefresh from "../disparos/LiveRefresh";
@@ -7,10 +7,11 @@ import LiveRefresh from "../disparos/LiveRefresh";
 export const dynamic = "force-dynamic";
 
 export default async function Page() {
-  const accountId = requireTenantId();
+  const context = getTenantContext();
+  const accountId = context.accountId;
   const supabase = getSupabaseSession();
 
-  const [instancesResult, accountResult] = await Promise.all([
+  const [instancesResult, accountResult, profileResult] = await Promise.all([
     supabase
       .from("instances")
       .select("id,name,status,instance_role,phone,last_seen_at,created_at,send_blocked_until,send_block_reason,send_block_code")
@@ -21,6 +22,11 @@ export default async function Page() {
       .select("instance_limit")
       .eq("id", accountId)
       .single(),
+    supabase
+      .from("profiles")
+      .select("permissions")
+      .eq("user_id", context.userId)
+      .maybeSingle(),
   ]);
 
   if (instancesResult.error) throw instancesResult.error;
@@ -28,6 +34,14 @@ export default async function Page() {
 
   const instances = (instancesResult.data ?? []) as any[];
   const limit = Number(accountResult.data?.instance_limit || 0);
+  const userPermissions = profileResult.data?.permissions && typeof profileResult.data.permissions === "object"
+    ? profileResult.data.permissions as Record<string, boolean>
+    : null;
+  const connectorOnly = context.role !== "super_admin"
+    && userPermissions?.overview === true
+    && userPermissions?.instances === true
+    && ["groups","leads","campaigns","group_broadcast","private_broadcast","operations","notifications","settings"]
+      .every((key) => userPermissions?.[key] !== true);
 
   return (
     <>
@@ -39,7 +53,7 @@ export default async function Page() {
         <LiveRefresh intervalMs={1000} />
       </div>
       <InstanceHealthPanel instances={instances as any} />
-      <InstancesManager initialInstances={instances as any} />
+      <InstancesManager initialInstances={instances as any} canChooseRole={!connectorOnly} />
     </>
   );
 }
