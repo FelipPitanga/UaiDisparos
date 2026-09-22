@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireTenantId } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -49,10 +50,12 @@ async function getJson(url: string, token: string) {
 
 export async function POST() {
   try {
+    const accountId = requireTenantId();
     const supabase = getSupabaseAdmin();
     const { data: instances, error } = await supabase
       .from("instances")
       .select("id,name,status,phone,instance_role,base_url,api_token,send_blocked_until,send_block_code,disconnect_probe_count,disconnect_first_seen_at")
+      .eq("account_id", accountId)
       .not("base_url", "is", null)
       .not("api_token", "is", null);
 
@@ -142,7 +145,7 @@ export async function POST() {
           update.send_block_code = null;
         }
 
-        const { error: updateError } = await supabase.from("instances").update(update).eq("id", instance.id);
+        const { error: updateError } = await supabase.from("instances").update(update).eq("id", instance.id).eq("account_id", accountId);
         if (updateError) throw updateError;
 
         // A notificação de desconexão é criada somente pelo trigger do banco quando

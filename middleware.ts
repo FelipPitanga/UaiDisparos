@@ -25,8 +25,9 @@ function permissionForPath(pathname: string): PermissionKey | "admin" | null {
   if (pathname.startsWith("/leads")) return "leads";
   if (pathname.startsWith("/campanhas") || pathname.startsWith("/api/campaigns")) return "campaigns";
   if (pathname.startsWith("/operacoes") || pathname.startsWith("/logs")) return "operations";
-  if (pathname.startsWith("/notificacoes") || pathname.startsWith("/api/notifications/settings")) return "notifications";
-  if (pathname.startsWith("/configuracoes")) return "settings";
+  if (pathname.startsWith("/notificacoes") || pathname.startsWith("/api/notifications/settings")) return "admin";
+  if (pathname.startsWith("/configuracoes")) return "admin";
+  if (pathname.startsWith("/api/uazapi/send") || pathname.startsWith("/api/uazapi/groups")) return "admin";
   if (pathname === "/") return "overview";
   return null;
 }

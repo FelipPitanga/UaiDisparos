@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireTenantId } from "@/lib/tenant";
 import SyncButton from "./SyncButton";
 import AutoRefresh from "./AutoRefresh";
 import MonitorToggle from "./MonitorToggle";
@@ -94,11 +95,13 @@ function GroupTable({ groups }: { groups: any[] }) {
 }
 
 export default async function Page({ searchParams }: { searchParams?: { instance?: string; type?: string } }) {
+  const accountId = requireTenantId();
   const supabase = getSupabaseAdmin();
 
   const { data: monitors } = await supabase
     .from("instances")
     .select("id,name,status,instance_role,phone,webhook_enabled,base_url,api_token")
+    .eq("account_id", accountId)
     .eq("instance_role", "monitor")
     .order("created_at", { ascending: true });
 
@@ -112,6 +115,7 @@ export default async function Page({ searchParams }: { searchParams?: { instance
   const groupsQuery = supabase
     .from("groups")
     .select("id,name,external_id,member_count,monitoring_enabled,updated_at,instance_id,metadata")
+    .eq("account_id", accountId)
     .order("name", { ascending: true });
 
   const { data: groups, error } = selectedId
@@ -179,6 +183,7 @@ export default async function Page({ searchParams }: { searchParams?: { instance
     ? await supabase
         .from("webhook_events")
         .select("id,event_type,group_external_id,participant_external_id,phone,lid,processed,processing_error,received_at")
+        .eq("account_id", accountId)
         .eq("instance_id", selectedId)
         .order("received_at", { ascending: false })
         .limit(1)

@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireTenantId } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const accountId = requireTenantId();
     const body = await req.json().catch(() => ({}));
     const active = body?.active === true;
     const supabase = getSupabaseAdmin();
@@ -13,6 +15,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       .from("group_automations")
       .select("id,authorization_confirmed")
       .eq("id", params.id)
+      .eq("account_id", accountId)
       .single();
 
     if (currentError || !current) {
@@ -31,6 +34,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       .from("group_automations")
       .update({ active, updated_at: now })
       .eq("id", params.id)
+      .eq("account_id", accountId)
       .select("*")
       .single();
 
@@ -41,12 +45,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         .from("jobs")
         .update({ status: "paused", error_message: "Automação pausada", updated_at: now })
         .eq("automation_id", params.id)
+        .eq("account_id", accountId)
         .in("status", ["queued", "processing"]);
     } else {
       await supabase
         .from("jobs")
         .update({ status: "queued", error_message: null, processed_at: null, updated_at: now })
         .eq("automation_id", params.id)
+        .eq("account_id", accountId)
         .eq("status", "paused");
     }
 
@@ -61,6 +67,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const accountId = requireTenantId();
     const supabase = getSupabaseAdmin();
     const now = new Date().toISOString();
 
@@ -68,9 +75,10 @@ export async function DELETE(_: NextRequest, { params }: { params: { id: string 
       .from("jobs")
       .update({ status: "paused", error_message: "Automação excluída", updated_at: now })
       .eq("automation_id", params.id)
+      .eq("account_id", accountId)
       .in("status", ["queued", "processing"]);
 
-    const { error } = await supabase.from("group_automations").delete().eq("id", params.id);
+    const { error } = await supabase.from("group_automations").delete().eq("id", params.id).eq("account_id", accountId);
     if (error) throw error;
 
     return NextResponse.json({ ok: true });

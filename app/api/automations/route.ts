@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireTenantId } from "@/lib/tenant";
 import { enqueueForAutomation } from "@/lib/automation";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ function uniqStrings(value: unknown, max: number) {
 
 export async function POST(req: NextRequest) {
   try {
+    const accountId = requireTenantId();
     const body = await req.json();
     const groupId = String(body?.group_id || "");
     const campaignIds = uniqStrings(body?.campaign_ids?.length ? body.campaign_ids : [body?.campaign_id], 5);
@@ -35,9 +37,9 @@ export async function POST(req: NextRequest) {
 
     const supabase = getSupabaseAdmin();
     const [{ data: group }, campaignsResult, sendersResult] = await Promise.all([
-      supabase.from("groups").select("id,external_id,monitoring_enabled").eq("id", groupId).single(),
-      supabase.from("campaigns").select("id,status").in("id", campaignIds),
-      supabase.from("instances").select("id,instance_role,status").in("id", senderInstanceIds),
+      supabase.from("groups").select("id,external_id,monitoring_enabled").eq("id", groupId).eq("account_id", accountId).single(),
+      supabase.from("campaigns").select("id,status").eq("account_id", accountId).in("id", campaignIds),
+      supabase.from("instances").select("id,instance_role,status").eq("account_id", accountId).in("id", senderInstanceIds),
     ]);
 
     if (!group) return NextResponse.json({ ok: false, error: "Grupo não encontrado." }, { status: 404 });
@@ -54,6 +56,7 @@ export async function POST(req: NextRequest) {
 
     const now = new Date().toISOString();
     const values = {
+      account_id: accountId,
       campaign_id: campaignIds[0],
       sender_instance_id: senderInstanceIds[0],
       campaign_ids: campaignIds,
@@ -67,11 +70,11 @@ export async function POST(req: NextRequest) {
       updated_at: now,
     };
 
-    const { data: existing } = await supabase.from("group_automations").select("id").eq("group_id", groupId).maybeSingle();
+    const { data: existing } = await supabase.from("group_automations").select("id").eq("group_id", groupId).eq("account_id", accountId).maybeSingle();
     let result;
 
     if (existing?.id) {
-      const { data, error } = await supabase.from("group_automations").update(values).eq("id", existing.id).select("*").single();
+      const { data, error } = await supabase.from("group_automations").update(values).eq("id", existing.id).eq("account_id", accountId).select("*").single();
       if (error) throw error;
       result = data;
     } else {
@@ -81,7 +84,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (active && !group.monitoring_enabled) {
-      await supabase.from("groups").update({ monitoring_enabled: true, updated_at: now }).eq("id", groupId);
+      await supabase.from("groups").update({ monitoring_enabled: true, updated_at: now }).eq("id", groupId).eq("account_id", accountId);
     }
 
     let capturedSummary: { found: number; queued: number; skipped: number; failed: number } | null = null;
@@ -91,6 +94,7 @@ export async function POST(req: NextRequest) {
         .from("leads")
         .select("id,phone,lid,external_participant_id,first_seen_at")
         .eq("group_id", groupId)
+        .eq("account_id", accountId)
         .order("first_seen_at", { ascending: true });
 
       if (leadsError) throw leadsError;
@@ -104,6 +108,7 @@ export async function POST(req: NextRequest) {
           .from("jobs")
           .select("lead_id")
           .eq("automation_id", result.id)
+          .eq("account_id", accountId)
           .in("lead_id", leadIds);
         if (jobsError) throw jobsError;
         for (const job of previousJobs || []) if (job.lead_id) existingJobLeadIds.add(job.lead_id);

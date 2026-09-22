@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { UazapiProvider } from "@/lib/providers/uazapi";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireTenantId } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +89,7 @@ async function configureGroupsWebhook(record: any) {
 
 export async function POST(request: Request) {
   try {
+    const accountId = requireTenantId();
     const body = await request.json().catch(() => ({}));
     const instanceId = String(body?.instanceId ?? "");
 
@@ -100,6 +102,7 @@ export async function POST(request: Request) {
       .from("instances")
       .select("id,name,status,instance_role,base_url,api_token")
       .eq("id", instanceId)
+      .eq("account_id", accountId)
       .single();
 
     if (instanceError || !instance) {
@@ -124,6 +127,7 @@ export async function POST(request: Request) {
     const now = new Date().toISOString();
 
     const rows = groups.map((group) => ({
+      account_id: accountId,
       instance_id: instance.id,
       external_id: group.JID!,
       name: group.Name || group.JID,
@@ -155,7 +159,8 @@ export async function POST(request: Request) {
         last_seen_at: now,
         updated_at: now,
       })
-      .eq("id", instance.id);
+      .eq("id", instance.id)
+      .eq("account_id", accountId);
 
     revalidatePath("/grupos");
     revalidatePath("/");

@@ -1,18 +1,20 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireTenantId } from "@/lib/tenant";
 import LiveRefresh from "../disparos/LiveRefresh";
 import OperationsManager from "./OperationsManager";
 
 export const dynamic = "force-dynamic";
 
 export default async function OperationsPage() {
+  const accountId = requireTenantId();
   const supabase = getSupabaseAdmin();
 
   const [groupOpsResult, privateOpsResult, campaignsResult, instancesResult, groupsResult] = await Promise.all([
-    supabase.from("group_automations").select("id,group_id,campaign_id,campaign_ids,sender_instance_id,sender_instance_ids,active,created_at").order("created_at", { ascending: false }),
-    supabase.from("private_broadcasts").select("id,name,campaign_ids,sender_instance_ids,status,created_at").neq("status", "archived").order("created_at", { ascending: false }),
-    supabase.from("campaigns").select("id,name"),
-    supabase.from("instances").select("id,name,phone,status"),
-    supabase.from("groups").select("id,name,external_id"),
+    supabase.from("group_automations").select("id,group_id,campaign_id,campaign_ids,sender_instance_id,sender_instance_ids,active,created_at").eq("account_id", accountId).order("created_at", { ascending: false }),
+    supabase.from("private_broadcasts").select("id,name,campaign_ids,sender_instance_ids,status,created_at").eq("account_id", accountId).neq("status", "archived").order("created_at", { ascending: false }),
+    supabase.from("campaigns").select("id,name").eq("account_id", accountId),
+    supabase.from("instances").select("id,name,phone,status").eq("account_id", accountId),
+    supabase.from("groups").select("id,name,external_id").eq("account_id", accountId),
   ]);
 
   const groupOps = groupOpsResult.data ?? [];
@@ -26,10 +28,10 @@ export default async function OperationsPage() {
 
   const [jobsResult, recipientsResult] = await Promise.all([
     groupOpIds.length
-      ? supabase.from("jobs").select("id,automation_id,recipient,status,error_message,processed_at,scheduled_at,campaign_id,instance_id,created_at").in("automation_id", groupOpIds).order("created_at", { ascending: false }).limit(2000)
+      ? supabase.from("jobs").select("id,automation_id,recipient,status,error_message,processed_at,scheduled_at,campaign_id,instance_id,created_at").eq("account_id", accountId).in("automation_id", groupOpIds).order("created_at", { ascending: false }).limit(2000)
       : Promise.resolve({ data: [] as any[] }),
     privateOpIds.length
-      ? supabase.from("private_broadcast_recipients").select("id,broadcast_id,phone,status,error_message,processed_at,scheduled_at,campaign_id,instance_id,created_at").in("broadcast_id", privateOpIds).order("created_at", { ascending: false }).limit(2000)
+      ? supabase.from("private_broadcast_recipients").select("id,broadcast_id,phone,status,error_message,processed_at,scheduled_at,campaign_id,instance_id,created_at").eq("account_id", accountId).in("broadcast_id", privateOpIds).order("created_at", { ascending: false }).limit(2000)
       : Promise.resolve({ data: [] as any[] }),
   ]);
 

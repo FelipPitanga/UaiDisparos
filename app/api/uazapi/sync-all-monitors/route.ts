@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { UazapiProvider } from "@/lib/providers/uazapi";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { enqueueForAutomation } from "@/lib/automation";
+import { requireTenantId } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +66,7 @@ async function captureParticipants(
   monitor: { id: string; name: string },
   dbGroup: { id: string; external_id: string; name: string; monitoring_enabled: boolean },
   participants: UazParticipant[],
+  accountId: string,
 ) {
   if (!dbGroup.monitoring_enabled || !Array.isArray(participants)) return { baseline: 0, captured: 0 };
 
@@ -76,11 +78,13 @@ async function captureParticipants(
     supabase
       .from("group_participant_snapshots")
       .select("participant_key,present")
-      .eq("group_id", dbGroup.id),
+      .eq("group_id", dbGroup.id)
+      .eq("account_id", accountId),
     supabase
       .from("group_automations")
       .select("active,include_new_leads")
       .eq("group_id", dbGroup.id)
+      .eq("account_id", accountId)
       .maybeSingle(),
   ]);
   if (snapshotError) throw snapshotError;
@@ -96,6 +100,7 @@ async function captureParticipants(
     if (normalized.length) {
       const { error } = await supabase.from("group_participant_snapshots").insert(
         normalized.map((item) => ({
+          account_id: accountId,
           group_id: dbGroup.id,
           participant_key: item.key,
           external_participant_id: item.participantId,
@@ -129,11 +134,13 @@ async function captureParticipants(
           updated_at: now,
         })
         .eq("group_id", dbGroup.id)
+        .eq("account_id", accountId)
         .eq("participant_key", item.key);
       continue;
     }
 
     const { error: snapshotInsertError } = await supabase.from("group_participant_snapshots").insert({
+      account_id: accountId,
       group_id: dbGroup.id,
       participant_key: item.key,
       external_participant_id: item.participantId,
@@ -154,6 +161,7 @@ async function captureParticipants(
       .from("leads")
       .select("id,capture_count")
       .eq("dedupe_key", dedupeKey)
+      .eq("account_id", accountId)
       .maybeSingle();
     if (leadLookupError) throw leadLookupError;
 
@@ -170,9 +178,10 @@ async function captureParticipants(
         capture_count: Number(existingLead.capture_count || 1) + 1,
         updated_at: now,
         metadata: { source: "group_sync", last_monitor_instance_id: monitor.id, identity_type: item.phone ? "phone" : "lid" },
-      }).eq("id", leadId);
+      }).eq("id", leadId).eq("account_id", accountId);
     } else {
       const { data: createdLead, error: leadInsertError } = await supabase.from("leads").insert({
+        account_id: accountId,
         instance_id: monitor.id,
         group_id: dbGroup.id,
         external_participant_id: item.participantId,
@@ -216,6 +225,7 @@ async function captureParticipants(
       .from("group_participant_snapshots")
       .update({ present: false, updated_at: now })
       .eq("group_id", dbGroup.id)
+      .eq("account_id", accountId)
       .in("participant_key", missingKeys);
   }
 
@@ -224,12 +234,14 @@ async function captureParticipants(
 
 export async function POST() {
   try {
+    const accountId = requireTenantId();
     const supabase = getSupabaseAdmin();
     const { data: monitors, error } = await supabase
       .from("instances")
       .select("id,name,status,instance_role,base_url,api_token")
       .eq("instance_role", "monitor")
-      .eq("status", "connected");
+      .eq("status", "connected")
+      .eq("account_id", accountId);
 
     if (error) throw error;
 
@@ -248,6 +260,7 @@ export async function POST() {
         const now = new Date().toISOString();
 
         const rows = groups.map((group) => ({
+          account_id: accountId,
           instance_id: monitor.id,
           external_id: group.JID!,
           name: group.Name || group.JID,
@@ -277,7 +290,8 @@ export async function POST() {
         const { data: dbGroups, error: dbGroupsError } = await supabase
           .from("groups")
           .select("id,external_id,name,monitoring_enabled")
-          .eq("instance_id", monitor.id);
+          .eq("instance_id", monitor.id)
+          .eq("account_id", accountId);
         if (dbGroupsError) throw dbGroupsError;
         const byExternalId = new Map((dbGroups ?? []).map((group: any) => [group.external_id, group]));
 
@@ -287,7 +301,7 @@ export async function POST() {
           if (!group.JID) continue;
           const dbGroup = byExternalId.get(group.JID) as any;
           if (!dbGroup?.monitoring_enabled) continue;
-          const result = await captureParticipants(supabase, monitor, dbGroup, group.Participants ?? []);
+          const result = await captureParticipants(supabase, monitor, dbGroup, group.Participants ?? [], accountId);
           captured += result.captured;
           baseline += result.baseline;
         }
@@ -295,7 +309,8 @@ export async function POST() {
         await supabase
           .from("instances")
           .update({ last_seen_at: now, updated_at: now })
-          .eq("id", monitor.id);
+          .eq("id", monitor.id)
+          .eq("account_id", accountId);
 
         results.push({ id: monitor.id, name: monitor.name, synced: rows.length, captured, baseline, ok: true });
       } catch (monitorError) {

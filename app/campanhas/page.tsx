@@ -1,13 +1,16 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireTenantId } from "@/lib/tenant";
 import CampaignsManager from "./CampaignsManager";
 
 export const dynamic = "force-dynamic";
 
 export default async function Page() {
+  const accountId = requireTenantId();
   const supabase = getSupabaseAdmin();
   const { data } = await supabase
     .from("campaigns")
     .select("id,name,status,text_content,media_url,media_type,footer_text,buttons,created_at,updated_at")
+    .eq("account_id", accountId)
     .neq("status", "archived")
     .order("created_at", { ascending: false });
 

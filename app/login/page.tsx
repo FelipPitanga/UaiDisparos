@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabase/browser";
 
 const panel: React.CSSProperties = {
@@ -20,7 +19,6 @@ const input: React.CSSProperties = {
 };
 
 export default function LoginPage() {
-  const params = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -34,7 +32,8 @@ export default function LoginPage() {
       setError(authError.message === "Invalid login credentials" ? "E-mail ou senha inválidos." : authError.message);
       setBusy(false); return;
     }
-    window.location.href = params.get("next") || "/";
+    const next = new URLSearchParams(window.location.search).get("next");
+    window.location.href = next || "/";
   }
 
   return (

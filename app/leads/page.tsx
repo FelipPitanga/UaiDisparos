@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireTenantId } from "@/lib/tenant";
 import LiveRefresh from "../disparos/LiveRefresh";
 
 export const dynamic = "force-dynamic";
@@ -36,11 +37,13 @@ function identityType(lead: { phone?: string | null; lid?: string | null }) {
 }
 
 export default async function Page() {
+  const accountId = requireTenantId();
   const supabase = getSupabaseAdmin();
 
   const { data: leads, error } = await supabase
     .from("leads")
     .select("id,instance_id,group_id,external_participant_id,phone,lid,consent_status,status,source_group_external_id,capture_count,first_seen_at,last_seen_at,created_at")
+    .eq("account_id", accountId)
     .order("last_seen_at", { ascending: false })
     .limit(500);
 
@@ -49,10 +52,10 @@ export default async function Page() {
 
   const [{ data: instances }, { data: groups }] = await Promise.all([
     instanceIds.length
-      ? supabase.from("instances").select("id,name").in("id", instanceIds)
+      ? supabase.from("instances").select("id,name").eq("account_id", accountId).in("id", instanceIds)
       : Promise.resolve({ data: [] as any[] }),
     groupIds.length
-      ? supabase.from("groups").select("id,name,external_id,metadata").in("id", groupIds)
+      ? supabase.from("groups").select("id,name,external_id,metadata").eq("account_id", accountId).in("id", groupIds)
       : Promise.resolve({ data: [] as any[] }),
   ]);
 

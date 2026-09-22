@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireTenantId } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,7 @@ function cleanButtons(value: any) {
 
 export async function POST(req: NextRequest) {
   try {
+    const accountId = requireTenantId();
     const body = await req.json();
     const name = String(body?.name || "").trim().slice(0, 100);
     const text = String(body?.text_content || "").trim();
@@ -31,6 +33,7 @@ export async function POST(req: NextRequest) {
 
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase.from("campaigns").insert({
+      account_id: accountId,
       name,
       status: "active",
       text_content: text || null,

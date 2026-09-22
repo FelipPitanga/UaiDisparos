@@ -1,15 +1,17 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireTenantId } from "@/lib/tenant";
 import PrivateBroadcastManager from "./PrivateBroadcastManager";
 
 export const dynamic = "force-dynamic";
 
 export default async function PrivateBroadcastPage() {
+  const accountId = requireTenantId();
   const supabase = getSupabaseAdmin();
   const [campaignsResult, sendersResult, groupsResult, leadsResult] = await Promise.all([
-    supabase.from("campaigns").select("id,name,text_content").eq("status", "active").order("created_at", { ascending: false }),
-    supabase.from("instances").select("id,name,status,phone").eq("instance_role", "sender").order("created_at", { ascending: true }),
-    supabase.from("groups").select("id,name,external_id").order("name", { ascending: true }),
-    supabase.from("leads").select("id,phone,name,group_id,consent_status").eq("consent_status", "opt_in").not("phone", "is", null),
+    supabase.from("campaigns").select("id,name,text_content").eq("account_id", accountId).eq("status", "active").order("created_at", { ascending: false }),
+    supabase.from("instances").select("id,name,status,phone").eq("account_id", accountId).eq("instance_role", "sender").order("created_at", { ascending: true }),
+    supabase.from("groups").select("id,name,external_id").eq("account_id", accountId).order("name", { ascending: true }),
+    supabase.from("leads").select("id,phone,name,group_id,consent_status").eq("account_id", accountId).eq("consent_status", "opt_in").not("phone", "is", null),
   ]);
 
   const campaigns = campaignsResult.data ?? [];

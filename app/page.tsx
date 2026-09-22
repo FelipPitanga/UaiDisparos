@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Activity, Bell, Megaphone, RadioTower, Send, Smartphone, UserRound, Users } from "lucide-react";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireTenantId } from "@/lib/tenant";
 import LiveRefresh from "./disparos/LiveRefresh";
 import LiveOverviewChart from "./components/LiveOverviewChart";
 
@@ -8,9 +9,9 @@ export const dynamic = "force-dynamic";
 
 const TIME_ZONE = "America/Sao_Paulo";
 
-async function count(table: string, filters?: (q: any) => any) {
+async function count(table: string, accountId: string, filters?: (q: any) => any) {
   const supabase = getSupabaseAdmin();
-  let query = supabase.from(table).select("*", { count: "exact", head: true });
+  let query = supabase.from(table).select("*", { count: "exact", head: true }).eq("account_id", accountId);
   if (filters) query = filters(query);
   const { count, error } = await query;
   if (error) throw error;
@@ -66,6 +67,7 @@ function eventLabel(type: string | null) {
 }
 
 export default async function Page() {
+  const accountId = requireTenantId();
   const supabase = getSupabaseAdmin();
   const days = buildLast7Days();
   const dayKeys = new Set(days.map((d) => d.key));
@@ -95,27 +97,28 @@ export default async function Page() {
     privateFailedToday,
     eventsResult,
   ] = await Promise.all([
-    supabase.from("jobs").select("processed_at").eq("status", "sent").gte("processed_at", queryCutoff),
-    supabase.from("private_broadcast_recipients").select("processed_at").eq("status", "sent").gte("processed_at", queryCutoff),
-    supabase.from("jobs").select("updated_at").eq("status", "failed").gte("updated_at", queryCutoff),
-    supabase.from("private_broadcast_recipients").select("updated_at").eq("status", "failed").gte("updated_at", queryCutoff),
-    count("group_automations", q => q.eq("active", true)),
-    count("private_broadcasts", q => q.eq("status", "active")),
-    count("instances", q => q.eq("status", "connected")),
-    count("groups", q => q.eq("monitoring_enabled", true)),
-    count("leads"),
-    count("campaigns", q => q.eq("status", "active")),
-    count("jobs", q => q.eq("status", "queued")),
-    count("private_broadcast_recipients", q => q.eq("status", "queued")),
-    count("jobs", q => q.eq("status", "processing")),
-    count("private_broadcast_recipients", q => q.eq("status", "processing")),
-    count("jobs", q => q.eq("status", "sent").gte("processed_at", todayIso)),
-    count("private_broadcast_recipients", q => q.eq("status", "sent").gte("processed_at", todayIso)),
-    count("jobs", q => q.eq("status", "failed").gte("updated_at", todayIso)),
-    count("private_broadcast_recipients", q => q.eq("status", "failed").gte("updated_at", todayIso)),
+    supabase.from("jobs").select("processed_at").eq("account_id", accountId).eq("status", "sent").gte("processed_at", queryCutoff),
+    supabase.from("private_broadcast_recipients").select("processed_at").eq("account_id", accountId).eq("status", "sent").gte("processed_at", queryCutoff),
+    supabase.from("jobs").select("updated_at").eq("account_id", accountId).eq("status", "failed").gte("updated_at", queryCutoff),
+    supabase.from("private_broadcast_recipients").select("updated_at").eq("account_id", accountId).eq("status", "failed").gte("updated_at", queryCutoff),
+    count("group_automations", accountId, q => q.eq("active", true)),
+    count("private_broadcasts", accountId, q => q.eq("status", "active")),
+    count("instances", accountId, q => q.eq("status", "connected")),
+    count("groups", accountId, q => q.eq("monitoring_enabled", true)),
+    count("leads", accountId),
+    count("campaigns", accountId, q => q.eq("status", "active")),
+    count("jobs", accountId, q => q.eq("status", "queued")),
+    count("private_broadcast_recipients", accountId, q => q.eq("status", "queued")),
+    count("jobs", accountId, q => q.eq("status", "processing")),
+    count("private_broadcast_recipients", accountId, q => q.eq("status", "processing")),
+    count("jobs", accountId, q => q.eq("status", "sent").gte("processed_at", todayIso)),
+    count("private_broadcast_recipients", accountId, q => q.eq("status", "sent").gte("processed_at", todayIso)),
+    count("jobs", accountId, q => q.eq("status", "failed").gte("updated_at", todayIso)),
+    count("private_broadcast_recipients", accountId, q => q.eq("status", "failed").gte("updated_at", todayIso)),
     supabase
       .from("webhook_events")
       .select("id,event_type,processed,processing_error,received_at,group_external_id")
+      .eq("account_id", accountId)
       .order("received_at", { ascending: false })
       .limit(8),
   ]);

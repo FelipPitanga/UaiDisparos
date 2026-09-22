@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireTenantId } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,7 @@ function normalizePhone(value: unknown) {
 
 export async function POST(req: NextRequest) {
   try {
+    const accountId = requireTenantId();
     const body = await req.json();
     const name = String(body?.name || "").trim().slice(0, 100);
     const campaignIds = uniqStrings(body?.campaign_ids, 5);
@@ -33,8 +35,8 @@ export async function POST(req: NextRequest) {
 
     const supabase = getSupabaseAdmin();
     const [campaignsResult, sendersResult] = await Promise.all([
-      supabase.from("campaigns").select("id,status").in("id", campaignIds),
-      supabase.from("instances").select("id,instance_role").in("id", senderIds),
+      supabase.from("campaigns").select("id,status").eq("account_id", accountId).in("id", campaignIds),
+      supabase.from("instances").select("id,instance_role").eq("account_id", accountId).in("id", senderIds),
     ]);
     if ((campaignsResult.data || []).filter((x) => x.status === "active").length !== campaignIds.length) {
       return NextResponse.json({ ok: false, error: "Uma ou mais campanhas não estão ativas." }, { status: 400 });
@@ -49,6 +51,7 @@ export async function POST(req: NextRequest) {
         .from("leads")
         .select("id,phone,name,group_id")
         .in("group_id", sourceGroupIds)
+        .eq("account_id", accountId)
         .eq("consent_status", "opt_in")
         .not("phone", "is", null);
       authorizedLeads = data || [];
@@ -69,6 +72,7 @@ export async function POST(req: NextRequest) {
 
     const now = new Date();
     const { data: broadcast, error: broadcastError } = await supabase.from("private_broadcasts").insert({
+      account_id: accountId,
       name,
       campaign_ids: campaignIds,
       sender_instance_ids: senderIds,
@@ -83,6 +87,7 @@ export async function POST(req: NextRequest) {
     if (broadcastError) throw broadcastError;
 
     const recipientRows = rows.map((row, index) => ({
+      account_id: accountId,
       broadcast_id: broadcast.id,
       ...row,
       campaign_id: campaignIds[index % campaignIds.length],

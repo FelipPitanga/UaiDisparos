@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireTenantId } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,7 @@ function cleanButtons(value: any) {
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const accountId = requireTenantId();
     const body = await req.json();
     const name = String(body?.name || "").trim().slice(0, 100);
     const text = String(body?.text_content || "").trim();
@@ -38,7 +40,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       footer_text: footerText,
       buttons: cleanButtons(body?.buttons),
       updated_at: new Date().toISOString(),
-    }).eq("id", params.id).select("*").single();
+    }).eq("id", params.id).eq("account_id", accountId).select("*").single();
 
     if (error) throw error;
     return NextResponse.json({ ok: true, campaign: data });
@@ -49,11 +51,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const accountId = requireTenantId();
     const supabase = getSupabaseAdmin();
     const now = new Date().toISOString();
-    const { error } = await supabase.from("campaigns").update({ status: "archived", updated_at: now }).eq("id", params.id);
+    const { error } = await supabase.from("campaigns").update({ status: "archived", updated_at: now }).eq("id", params.id).eq("account_id", accountId);
     if (error) throw error;
-    await supabase.from("group_automations").update({ active: false, updated_at: now }).eq("campaign_id", params.id);
+    await supabase.from("group_automations").update({ active: false, updated_at: now }).eq("campaign_id", params.id).eq("account_id", accountId);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Erro ao arquivar campanha." }, { status: 500 });
