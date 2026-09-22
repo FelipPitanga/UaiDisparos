@@ -16,20 +16,40 @@ const PUBLIC_API_PREFIXES = [
   "/api/notifications/process",
 ];
 
+const permissionLandingOrder: [PermissionKey, string][] = [
+  ["overview", "/"],
+  ["instances", "/instancias"],
+  ["groups", "/grupos"],
+  ["leads", "/leads"],
+  ["campaigns", "/campanhas"],
+  ["group_broadcast", "/disparos"],
+  ["private_broadcast", "/disparos/privado"],
+  ["operations", "/operacoes"],
+  ["notifications", "/notificacoes"],
+  ["settings", "/configuracoes"],
+];
+
 function permissionForPath(pathname: string): PermissionKey | "admin" | null {
   if (pathname.startsWith("/admin") || pathname.startsWith("/api/admin")) return "admin";
   if (pathname.startsWith("/disparos/privado") || pathname.startsWith("/api/private-broadcasts")) return "private_broadcast";
   if (pathname === "/disparos" || pathname.startsWith("/api/automations")) return "group_broadcast";
   if (pathname.startsWith("/instancias") || pathname.startsWith("/api/uazapi/instances") || pathname.startsWith("/api/uazapi/check-instance-statuses")) return "instances";
-  if (pathname.startsWith("/grupos") || pathname.startsWith("/api/groups") || pathname.startsWith("/api/uazapi/sync-groups") || pathname.startsWith("/api/uazapi/sync-all-monitors")) return "groups";
+  if (pathname.startsWith("/grupos") || pathname.startsWith("/api/groups") || pathname.startsWith("/api/uazapi/groups") || pathname.startsWith("/api/uazapi/sync-groups") || pathname.startsWith("/api/uazapi/sync-all-monitors")) return "groups";
   if (pathname.startsWith("/leads")) return "leads";
   if (pathname.startsWith("/campanhas") || pathname.startsWith("/api/campaigns")) return "campaigns";
   if (pathname.startsWith("/operacoes") || pathname.startsWith("/logs")) return "operations";
-  if (pathname.startsWith("/notificacoes") || pathname.startsWith("/api/notifications/settings")) return "admin";
-  if (pathname.startsWith("/configuracoes")) return "admin";
-  if (pathname.startsWith("/api/uazapi/send") || pathname.startsWith("/api/uazapi/groups")) return "admin";
+  if (pathname.startsWith("/notificacoes") || pathname.startsWith("/api/notifications/settings")) return "notifications";
+  if (pathname.startsWith("/configuracoes")) return "settings";
+  if (pathname.startsWith("/api/uazapi/send")) return "group_broadcast";
   if (pathname === "/") return "overview";
   return null;
+}
+
+function firstAllowedPath(permissions: Record<string, boolean>) {
+  for (const [key, path] of permissionLandingOrder) {
+    if (permissions[key] === true) return path;
+  }
+  return "/sem-acesso";
 }
 
 function copyCookies(source: NextResponse, target: NextResponse) {
@@ -80,13 +100,6 @@ export async function middleware(request: NextRequest) {
     return copyCookies(response, NextResponse.redirect(loginUrl));
   }
 
-  if (isAuthPage) {
-    const home = request.nextUrl.clone();
-    home.pathname = "/";
-    home.search = "";
-    return copyCookies(response, NextResponse.redirect(home));
-  }
-
   const admin = createClient(url, secret, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
@@ -113,7 +126,17 @@ export async function middleware(request: NextRequest) {
   }
 
   const role = String(profile.role || "client");
-  if (account.status !== "active" && role !== "super_admin" && !isPassThrough) {
+  const permissions = (account.permissions || {}) as Record<string, boolean>;
+  const isSuperAdmin = role === "super_admin";
+
+  if (isAuthPage) {
+    const home = request.nextUrl.clone();
+    home.pathname = isSuperAdmin ? "/" : firstAllowedPath(permissions);
+    home.search = "";
+    return copyCookies(response, NextResponse.redirect(home));
+  }
+
+  if (account.status !== "active" && !isSuperAdmin && !isPassThrough) {
     if (isApi) return copyCookies(response, NextResponse.json({ ok: false, error: "Conta suspensa." }, { status: 403 }));
     const blocked = request.nextUrl.clone();
     blocked.pathname = "/conta-bloqueada";
@@ -122,8 +145,6 @@ export async function middleware(request: NextRequest) {
   }
 
   const required = permissionForPath(pathname);
-  const permissions = (account.permissions || {}) as Record<string, boolean>;
-  const isSuperAdmin = role === "super_admin";
 
   if (required === "admin" && !isSuperAdmin) {
     if (isApi) return copyCookies(response, NextResponse.json({ ok: false, error: "Acesso administrativo necessário." }, { status: 403 }));
@@ -134,6 +155,16 @@ export async function middleware(request: NextRequest) {
   }
 
   if (required && required !== "admin" && !isSuperAdmin && permissions[required] !== true) {
+    if (!isApi && pathname === "/") {
+      const landing = firstAllowedPath(permissions);
+      if (landing !== "/sem-acesso") {
+        const destination = request.nextUrl.clone();
+        destination.pathname = landing;
+        destination.search = "";
+        return copyCookies(response, NextResponse.redirect(destination));
+      }
+    }
+
     if (isApi) return copyCookies(response, NextResponse.json({ ok: false, error: "Módulo bloqueado para esta conta." }, { status: 403 }));
     const denied = request.nextUrl.clone();
     denied.pathname = "/sem-acesso";
