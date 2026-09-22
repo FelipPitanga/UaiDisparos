@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { getSupabaseSession } from "@/lib/supabase/session";
 import { requireSuperAdmin, type PermissionKey } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +21,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     requireSuperAdmin();
     const id = String(params.id || "");
     const body = await req.json();
-    const supabase = getSupabaseAdmin();
+    const supabase = getSupabaseSession();
 
     const { data: current } = await supabase.from("accounts").select("id,is_primary,instance_limit").eq("id", id).maybeSingle();
     if (!current) return NextResponse.json({ ok: false, error: "Conta não encontrada." }, { status: 404 });
