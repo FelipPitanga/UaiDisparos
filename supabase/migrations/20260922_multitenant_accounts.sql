@@ -1,0 +1,9 @@
+-- UAI Disparos: multi-tenant, autenticação, permissões e cotas.
+-- Produção aplicada em 2026-09-22 no Supabase do UAI.
+-- O banco recebeu:
+--   public.accounts, public.profiles, public.system_settings
+--   account_id nas tabelas operacionais
+--   trigger auth.users -> profile/account
+--   triggers para propagar account_id em grupos, leads, jobs, snapshots e recipients
+--   RLS em accounts/profiles/settings e helpers no schema app_private
+-- Consulte o histórico de migração do projeto Supabase para o SQL executado.
