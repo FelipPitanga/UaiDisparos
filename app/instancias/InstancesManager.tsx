@@ -15,7 +15,7 @@ type InstanceRow = {
   created_at: string;
 };
 
-type Props = { initialInstances: InstanceRow[] };
+type Props = { initialInstances: InstanceRow[]; canChooseRole?: boolean };
 
 function roleLabel(role: InstanceRole) {
   return role === "monitor" ? "Monitorador" : "Disparador";
@@ -36,7 +36,7 @@ function statusClass(status: string) {
   return "";
 }
 
-export default function InstancesManager({ initialInstances }: Props) {
+export default function InstancesManager({ initialInstances, canChooseRole = true }: Props) {
   const router = useRouter();
   const [instances, setInstances] = useState(initialInstances);
   const [showCreate, setShowCreate] = useState(false);
@@ -271,14 +271,22 @@ export default function InstancesManager({ initialInstances }: Props) {
               <button className="modal-close" onClick={() => setShowCreate(false)} disabled={busy}>×</button>
             </div>
             <div className="field"><label>Nome</label><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={role === "monitor" ? "Ex.: Monitor X" : "Ex.: Disparador 1"} autoFocus /></div>
-            <div className="field modal-field-gap">
-              <label>Função</label>
-              <select className="select" value={role} onChange={(e) => setRole(e.target.value as InstanceRole)}>
-                <option value="monitor">Monitorador</option>
-                <option value="sender">Disparador</option>
-              </select>
-              <div className="muted code-help">Monitorador observa grupos. Disparador só participa da fila de envio.</div>
-            </div>
+            {canChooseRole ? (
+              <div className="field modal-field-gap">
+                <label>Função</label>
+                <select className="select" value={role} onChange={(e) => setRole(e.target.value as InstanceRole)}>
+                  <option value="monitor">Monitorador</option>
+                  <option value="sender">Disparador</option>
+                </select>
+                <div className="muted code-help">Monitorador observa grupos. Disparador só participa da fila de envio.</div>
+              </div>
+            ) : (
+              <div className="field modal-field-gap">
+                <label>Função</label>
+                <div className="badge ok">Disparador</div>
+                <div className="muted code-help">As conexões deste acesso entram automaticamente no pool de disparo da operação.</div>
+              </div>
+            )}
             {error ? <div className="alert-error compact">{error}</div> : null}
             <div className="modal-actions"><button className="btn secondary" onClick={() => setShowCreate(false)} disabled={busy}>Cancelar</button><button className="btn" onClick={createInstance} disabled={busy}>{busy ? "Criando..." : "Criar instância"}</button></div>
           </div>
