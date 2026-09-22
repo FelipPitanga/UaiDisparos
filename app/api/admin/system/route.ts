@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { getSupabaseSession } from "@/lib/supabase/session";
 import { requireSuperAdmin } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export async function PATCH(req: NextRequest) {
     requireSuperAdmin();
     const body = await req.json();
     const capacity = Math.max(0, Math.min(100000, Math.round(Number(body?.global_instance_capacity ?? 0))));
-    const supabase = getSupabaseAdmin();
+    const supabase = getSupabaseSession();
     const { data: accounts } = await supabase.from("accounts").select("instance_limit");
     const allocated = (accounts || []).reduce((sum, item: any) => sum + Number(item.instance_limit || 0), 0);
     if (capacity < allocated) {
