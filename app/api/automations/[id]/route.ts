@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseSession } from "@/lib/supabase/session";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { requireTenantId } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const accountId = requireTenantId();
     const body = await req.json().catch(() => ({}));
     const active = body?.active === true;
-    const supabase = getSupabaseSession();
+    const supabase = getSupabaseAdmin();
 
     const { data: current, error: currentError } = await supabase
       .from("group_automations")
@@ -68,7 +68,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
   try {
     const accountId = requireTenantId();
-    const supabase = getSupabaseSession();
+    const supabase = getSupabaseAdmin();
     const now = new Date().toISOString();
 
     await supabase
