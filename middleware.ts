@@ -1,5 +1,4 @@
 import { createServerClient } from "@supabase/ssr";
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 
@@ -86,10 +85,6 @@ export async function middleware(request: NextRequest) {
 
   const url = SUPABASE_URL;
   const anon = SUPABASE_PUBLISHABLE_KEY;
-  const secret = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !anon || !secret) {
-    return NextResponse.json({ ok: false, error: "Configuração de autenticação incompleta." }, { status: 500 });
-  }
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.delete("x-uai-user-id");
@@ -119,10 +114,7 @@ export async function middleware(request: NextRequest) {
     return copyCookies(response, NextResponse.redirect(loginUrl));
   }
 
-  const admin = createClient(url, secret, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-  });
-  const { data: profile } = await admin.from("profiles")
+  const { data: profile } = await supabase.from("profiles")
     .select("user_id,account_id,name,email,role").eq("user_id", user.id).maybeSingle();
 
   if (!profile) {
@@ -134,7 +126,7 @@ export async function middleware(request: NextRequest) {
     return copyCookies(response, NextResponse.redirect(blocked));
   }
 
-  const { data: account } = await admin.from("accounts")
+  const { data: account } = await supabase.from("accounts")
     .select("id,name,status,instance_limit,permissions").eq("id", profile.account_id).maybeSingle();
 
   if (!account) {
