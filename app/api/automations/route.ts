@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
             groupExternalId: group.external_id,
             identity,
             sourceTimestamp: lead.first_seen_at || null,
-          });
+          }, supabase);
           if (enqueue?.queued) queued += 1;
           else if (enqueue?.duplicate) skipped += 1;
           else failed += 1;
