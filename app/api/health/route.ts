@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/supabase/config";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { SUPABASE_URL } from "@/lib/supabase/config";
 
 export const dynamic = "force-dynamic";
 
-function errorMessage(error: unknown) {
+function describe(error: unknown) {
   if (error instanceof Error) return error.message;
   if (error && typeof error === "object") {
     const value = error as Record<string, unknown>;
@@ -17,33 +17,36 @@ function errorMessage(error: unknown) {
 }
 
 export async function GET() {
-  let databaseReachable = false;
-  let databaseError: string | null = null;
+  let adminAccess = false;
+  let errorMessage: string | null = null;
 
   try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-
+    const supabase = getSupabaseAdmin();
     const { error } = await supabase
       .from("accounts")
       .select("id", { count: "exact", head: true });
 
     if (error) throw error;
-    databaseReachable = true;
+    adminAccess = true;
   } catch (error) {
-    databaseError = errorMessage(error);
+    errorMessage = describe(error);
   }
 
   return NextResponse.json(
     {
-      ok: databaseReachable,
+      ok: adminAccess,
       service: "UaiDisparos",
       runtime: "cloudflare-worker",
-      checks: { databaseReachable, supabaseProject: "ykiuehczcjuskeoyqmqm" },
-      databaseError,
+      checks: {
+        supabaseAdminAccess: adminAccess,
+        supabaseProject: new URL(SUPABASE_URL).hostname.split(".")[0],
+      },
+      error: errorMessage,
       checkedAt: new Date().toISOString(),
     },
-    { status: databaseReachable ? 200 : 503, headers: { "Cache-Control": "no-store" } },
+    {
+      status: adminAccess ? 200 : 503,
+      headers: { "Cache-Control": "no-store" },
+    },
   );
 }
