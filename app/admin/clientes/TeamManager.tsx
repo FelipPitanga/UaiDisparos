@@ -179,7 +179,7 @@ export default function TeamManager() {
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
           <button type="button" className="btn secondary" onClick={() => setForm((current) => ({ ...current, permissions: connectorPreset() }))}>
-            Conexões בלבד
+            Só conexões
           </button>
           <button type="button" className="btn secondary" onClick={() => setForm((current) => ({ ...current, permissions: fullPreset() }))}>
             Acesso completo
